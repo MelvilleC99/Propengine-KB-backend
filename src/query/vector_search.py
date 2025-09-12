@@ -23,19 +23,19 @@ class VectorSearch:
         self.collection_configs = {
             "definitions": {
                 "name": settings.DEFINITIONS_COLLECTION,
-                "content_field": "page_content"  # Uses page_content
+                "content_field": "content"  # All collections use 'content'
             },
             "errors": {
                 "name": settings.ERRORS_COLLECTION,
-                "content_field": "page_content"
+                "content_field": "content"
             },
             "howto": {
                 "name": settings.HOWTO_COLLECTION,
-                "content_field": "page_content"
+                "content_field": "content"
             },
             "workflows": {
-                "name": settings.WORKFLOWS_COLLECTION,
-                "content_field": "content"  # Uses content (different from others!)
+                "name": settings.WORKFLOWS_COLLECTION,  # This maps to "workflow" in settings
+                "content_field": "content"
             }
         }
         
@@ -102,19 +102,11 @@ class VectorSearch:
     
     def extract_content(self, document: Document, field_name: str) -> str:
         """Extract content from document based on field name"""
-        # For workflow collection, content is in metadata['content']
-        if field_name == "content" and hasattr(document, 'metadata'):
-            if 'content' in document.metadata:
-                return document.metadata['content']
-        
-        # For other collections, use page_content
-        if field_name == "page_content" and hasattr(document, 'page_content'):
-            return document.page_content
-        
-        # Fallback: try both approaches
+        # Try page_content first (standard LangChain field)
         if hasattr(document, 'page_content') and document.page_content:
             return document.page_content
         
+        # Try metadata['content'] (custom field)
         if hasattr(document, 'metadata') and document.metadata:
             if 'content' in document.metadata:
                 return document.metadata['content']

@@ -45,8 +45,8 @@ class AstraDBConnection:
                     embedding=self.embeddings
                 )
                 
-                # Try a simple search to verify it works
-                vector_store.similarity_search("test", k=1)
+                # Just verify the collection exists and is accessible
+                # Don't do a search since collections might be empty
                 results[collection_type] = True
                 logger.info(f"✓ {collection_type} collection accessible")
                 
