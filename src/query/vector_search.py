@@ -65,32 +65,37 @@ class VectorSearch:
         query: str, 
         collection_type: str, 
         k: int = 3,
-        metadata_filter: Optional[Dict] = None
+        metadata_filter: Optional[Dict] = None,
+        similarity_threshold: float = 0.7  # Add similarity threshold
     ) -> List[Dict[str, Any]]:
         """Search a specific collection and return structured results"""
         try:
             vector_store = self.get_vector_store(collection_type)
             config = self.collection_configs[collection_type]
             
-            # Perform similarity search
+            # Perform similarity search with scores
             if metadata_filter:
-                docs = vector_store.similarity_search(
+                docs_with_scores = vector_store.similarity_search_with_score(
                     query,
                     k=k,
                     filter=metadata_filter
                 )
             else:
-                docs = vector_store.similarity_search(query, k=k)
+                docs_with_scores = vector_store.similarity_search_with_score(query, k=k)
             
-            logger.info(f"Found {len(docs)} results in {collection_type}")
+            # Filter by similarity threshold
+            filtered_docs = [(doc, score) for doc, score in docs_with_scores if score >= similarity_threshold]
+            
+            logger.info(f"Found {len(filtered_docs)} results above threshold {similarity_threshold} in {collection_type}")
             
             # Process results based on collection's field structure
             results = []
-            for doc in docs:
+            for doc, score in filtered_docs:
                 result = {
                     "content": self.extract_content(doc, config['content_field']),
                     "metadata": doc.metadata if hasattr(doc, 'metadata') else {},
-                    "collection": collection_type
+                    "collection": collection_type,
+                    "similarity_score": score
                 }
                 results.append(result)
             

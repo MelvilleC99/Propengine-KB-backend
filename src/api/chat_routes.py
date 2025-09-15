@@ -31,6 +31,7 @@ class ChatResponse(BaseModel):
     sources: List[Dict] = Field(default_factory=list, description="Sources used for response")
     query_type: Optional[str] = Field(None, description="Detected query type")
     timestamp: str = Field(..., description="Response timestamp")
+    requires_escalation: bool = Field(False, description="Whether the query requires escalation to human agent")
 
 @router.post("/", response_model=ChatResponse)
 async def chat(request: ChatRequest):
@@ -67,7 +68,8 @@ async def chat(request: ChatRequest):
             confidence=result.get("confidence", 0.0),
             sources=result.get("sources", []),
             query_type=result.get("query_type"),
-            timestamp=datetime.now().isoformat()
+            timestamp=datetime.now().isoformat(),
+            requires_escalation=result.get("requires_escalation", False)
         )
         
     except Exception as e:

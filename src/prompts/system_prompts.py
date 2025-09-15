@@ -37,11 +37,8 @@ The user's question couldn't be found in the knowledge base.
 
 User Question: {query}
 
-Please provide a helpful response that:
-1. Acknowledges the question
-2. Provides any general guidance you can offer
-3. Suggests contacting support for specific assistance
-4. Remains professional and helpful
+Respond with exactly this message:
+"Sorry, it seems I need to handover to a physical agent for this issue. Would you like me to create a ticket for you?"
 
 Response:"""
 

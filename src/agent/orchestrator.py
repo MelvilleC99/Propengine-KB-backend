@@ -105,24 +105,35 @@ class Agent:
                     "query_type": query_type
                 }
             
-            # Determine collection to search
+            # Determine collection to search - use short keys that match vector_search
             collection_map = {
                 "definition": "definitions",
-                "error": "errors",
+                "error": "errors", 
                 "howto": "howto",
-                "workflow": "workflows"  # Note: plural for consistency
+                "workflow": "workflows"
             }
             collection = collection_map.get(query_type, "definitions")
             
             # Clean query for search
             search_query = self.vector_search.clean_query(query)
             
-            # Search knowledge base
+            # Search knowledge base with fallback strategy
             results = await self.vector_search.search(
                 query=search_query,
                 collection_type=collection,
                 k=settings.MAX_SEARCH_RESULTS
             )
+            
+            # If no results and query was classified as "howto", try workflow collection as fallback
+            if not results and query_type == "howto":
+                logger.info(f"No results in {collection} collection, trying workflow fallback")
+                results = await self.vector_search.search(
+                    query=search_query,
+                    collection_type="workflows",
+                    k=settings.MAX_SEARCH_RESULTS
+                )
+                if results:
+                    collection = "workflows"  # Update collection name for logging
             
             if results:
                 # Extract contexts from results
@@ -138,12 +149,16 @@ class Agent:
                 
                 self.session_manager.add_message(session_id, "assistant", response)
                 
+                # Check if confidence is too low - trigger escalation for low confidence
+                requires_escalation = confidence < 0.9  # Trigger escalation if confidence below 90%
+                
                 return {
                     "response": response,
                     "confidence": confidence,
                     "sources": sources,
                     "query_type": query_type,
-                    "collection_searched": collection
+                    "collection_searched": collection,
+                    "requires_escalation": requires_escalation
                 }
             else:
                 # No results found - use fallback
@@ -159,7 +174,8 @@ class Agent:
                     "sources": [],
                     "query_type": query_type,
                     "collection_searched": collection,
-                    "note": "No matching content found in knowledge base"
+                    "note": "No matching content found in knowledge base",
+                    "requires_escalation": True
                 }
                 
         except Exception as e:
