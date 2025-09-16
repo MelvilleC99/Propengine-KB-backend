@@ -1,72 +1,70 @@
-"""Vector search and query processing for AstraDB collections"""
+"""Vector search functionality using AstraDB with connection pooling"""
 
+import logging
 from typing import List, Dict, Optional, Any
 from langchain_astradb import AstraDBVectorStore
-from langchain_openai import OpenAIEmbeddings
 from langchain.schema import Document
-import logging
 from src.config.settings import settings
+from src.database.connection import astradb_connection
 
 logger = logging.getLogger(__name__)
 
 class VectorSearch:
-    """Handles vector search operations using unified PropertyEngine collection with metadata filtering"""
+    """Vector search with reused AstraDB connection"""
     
     def __init__(self):
-        """Initialize vector search with embeddings"""
-        self.embeddings = OpenAIEmbeddings(
-            api_key=settings.OPENAI_API_KEY,
-            model=settings.EMBEDDING_MODEL
-        )
-        
-        # Single unified collection configuration
-        self.collection_name = settings.PROPERTY_ENGINE_COLLECTION
-        self._vector_store = None
-        
-        # Entry type mappings for metadata filtering
-        self.entry_type_map = {
-            "definition": "definition",
-            "error": "error", 
-            "howto": "how_to",
-            "workflow": "how_to"  # workflows are now how_to entries
-        }
+        """Initialize vector search with singleton connection"""
+        # Use the global singleton connection instead of creating new ones
+        self.db_connection = astradb_connection
+        logger.info("VectorSearch initialized with singleton connection")
     
     def get_vector_store(self) -> AstraDBVectorStore:
-        """Get or create the unified vector store with proper settings"""
-        if not self._vector_store:
-            logger.info(f"Creating vector store for unified collection: {self.collection_name}")
-            
-            self._vector_store = AstraDBVectorStore(
-                token=settings.ASTRADB_TOKEN,
-                api_endpoint=settings.ASTRADB_ENDPOINT,
-                collection_name=self.collection_name,
-                namespace=settings.ASTRADB_KEYSPACE,
-                embedding=self.embeddings,
-                metric="cosine",  # Ensure consistent similarity metric
-                batch_size=1  # Reduce batch size for better compatibility
-            )
-        
-        return self._vector_store
+        """Get the reused vector store connection"""
+        return self.db_connection.get_vector_store()
     
     async def search(
         self, 
         query: str, 
-        entry_type: str = None,
-        user_type: str = None, 
-        k: int = 3,
+        entry_type: Optional[str] = None,
+        user_type: Optional[str] = None, 
+        k: int = 5,
+        similarity_threshold: float = 0.7,
         additional_metadata_filter: Optional[Dict] = None,
-        similarity_threshold: float = 0.7
-    ) -> List[Dict[str, Any]]:
-        """Search the unified collection with metadata filtering"""
+        query_embeddings: Optional[List[float]] = None  # New parameter for cached embeddings
+    ) -> List[Dict]:
+        """
+        Perform vector similarity search using reused connection
+        
+        Args:
+            query: Search query string
+            entry_type: Filter by entry type (definition, error, howto, etc.)
+            user_type: Filter by user type (internal, external, both)
+            k: Number of results to return
+            similarity_threshold: Minimum similarity score
+            additional_metadata_filter: Additional filters to apply
+        
+        Returns:
+            List of search results with metadata and similarity scores
+        """
         try:
+            # Use the singleton vector store instead of creating new one
             vector_store = self.get_vector_store()
+            
+            # Get embeddings (either provided or generate once)
+            if query_embeddings is None:
+                # Generate embeddings once
+                embeddings_model = self.db_connection.get_embeddings()
+                query_embeddings = await embeddings_model.aembed_query(query)
+                logger.info(f"Generated embeddings for query: {query[:50]}...")
+            else:
+                logger.info(f"Reusing cached embeddings for query: {query[:50]}...")
             
             # Build metadata filter
             metadata_filter = {}
             
-            # Filter by entry type if specified
-            if entry_type and entry_type in self.entry_type_map:
-                metadata_filter["entryType"] = self.entry_type_map[entry_type]
+            # Filter by entry type if specified  
+            if entry_type:
+                metadata_filter["entryType"] = entry_type
             
             # Filter by user type if specified (internal, external, both)
             if user_type:
@@ -78,15 +76,18 @@ class VectorSearch:
             
             logger.info(f"Searching with metadata filter: {metadata_filter}")
             
-            # Perform similarity search with scores
+            # Perform similarity search using cached embeddings
             if metadata_filter:
-                docs_with_scores = vector_store.similarity_search_with_score(
-                    query,
+                docs_with_scores = vector_store.similarity_search_with_score_by_vector(
+                    query_embeddings,
                     k=k,
                     filter=metadata_filter
                 )
             else:
-                docs_with_scores = vector_store.similarity_search_with_score(query, k=k)
+                docs_with_scores = vector_store.similarity_search_with_score_by_vector(
+                    query_embeddings, 
+                    k=k
+                )
             
             # Filter by similarity threshold
             filtered_docs = [(doc, score) for doc, score in docs_with_scores if score >= similarity_threshold]
@@ -105,11 +106,11 @@ class VectorSearch:
                 }
                 results.append(result)
             
-            return results
+            return results, query_embeddings  # Return embeddings for caching
             
         except Exception as e:
             logger.error(f"Search error: {e}")
-            return []
+            return [], None  # Return empty results and None for embeddings on error
     
     def extract_content(self, document: Document) -> str:
         """Extract content from document"""
@@ -117,14 +118,14 @@ class VectorSearch:
         if hasattr(document, 'page_content') and document.page_content:
             return document.page_content
         
-        # Try metadata['content'] (custom field)
+        # Try metadata content fields
         if hasattr(document, 'metadata') and document.metadata:
             if 'content' in document.metadata:
                 return document.metadata['content']
             if 'text' in document.metadata:
                 return document.metadata['text']
         
-        logger.warning(f"Could not extract content from document")
+        logger.warning("Could not extract content from document")
         return ""
     
     def clean_query(self, query: str) -> str:

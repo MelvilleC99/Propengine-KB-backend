@@ -8,6 +8,7 @@ import re
 from src.config.settings import settings
 from src.query.vector_search import VectorSearch
 from src.memory.session_manager import SessionManager
+from src.utils.failsafe import create_request_tracker, with_failsafe, RequestTracker
 from src.prompts.system_prompts import (
     SYSTEM_PROMPT,
     RESPONSE_GENERATION_PROMPT,
@@ -33,9 +34,11 @@ class QueryClassifier:
             r"\bnot work(ing)?\b"
         ],
         "definition": [
-            r"\bwhat (is|are)\b(?!.*\berror\b)",  # Exclude if contains "error"
+            r"\bwhat (is|are|does|do)\b(?!.*\berror\b)",  # Include "what does" and "what do"
             r"\bdefine\b",
             r"\bmeaning of\b",
+            r"\bmean\b(?!.*\berror\b)",  # Add "mean" pattern
+            r"\btell me about\b",  # Add "tell me about" pattern
             r"\bexplain\b(?!.*\berror\b)"  # Exclude if contains "error"
         ],
         "howto": [
@@ -76,9 +79,12 @@ class Agent:
             model=settings.OPENAI_MODEL,
             temperature=0.7
         )
+        # Uses singleton connections now - no more recreating connections per query
         self.vector_search = VectorSearch()
         self.session_manager = SessionManager()
         self.classifier = QueryClassifier()
+        
+        logger.info("Agent orchestrator initialized with singleton connections")
     
     async def process_query(
         self, 
@@ -89,17 +95,18 @@ class Agent:
     ) -> Dict:
         """Process a user query and return a response"""
         try:
-            # Add to session history
-            self.session_manager.add_message(session_id, "user", query)
+            # Add to session history - COMMENTED OUT for performance (use chat summaries instead)
+            # self.session_manager.add_message(session_id, "user", query)
             
             # Classify query
             query_type, confidence = self.classifier.classify(query)
             logger.info(f"Query classified as {query_type} with confidence {confidence}")
+            logger.info(f"🔍 DEBUG: Classification confidence value = {confidence} (type: {type(confidence)})")
             
             # Handle greetings without search
             if query_type == "greeting":
                 response = "Hello! I'm here to help you with PropertyEngine. What would you like to know?"
-                self.session_manager.add_message(session_id, "assistant", response)
+                # self.session_manager.add_message(session_id, "assistant", response) # COMMENTED OUT for performance
                 return {
                     "response": response,
                     "confidence": 1.0,
@@ -114,73 +121,98 @@ class Agent:
             # Clean query for search
             search_query = self.vector_search.clean_query(query)
             
+            # Track search attempts for debugging
+            search_attempts = []
+            cached_embeddings = None  # Cache embeddings between searches
+            
             # Search knowledge base with metadata filtering + fallback strategy
-            results = await self.vector_search.search(
+            search_attempts.append(f"primary:{entry_type}")
+            results, cached_embeddings = await self.vector_search.search(
                 query=search_query,
                 entry_type=entry_type,
                 user_type=user_type_filter,  # Add user type filtering
                 k=settings.MAX_SEARCH_RESULTS
             )
             
-            # Fallback Strategy 1: If no results, try without entry_type filter
+            # Fallback Strategy 1: If no results, try without entry_type filter (reuse embeddings)
             if not results:
                 logger.info(f"No results for {entry_type}, trying without entry_type filter")
-                results = await self.vector_search.search(
+                search_attempts.append("fallback:no_filter")
+                results, _ = await self.vector_search.search(
                     query=search_query,
                     user_type=user_type_filter,  
-                    k=settings.MAX_SEARCH_RESULTS
+                    k=settings.MAX_SEARCH_RESULTS,
+                    query_embeddings=cached_embeddings  # Reuse embeddings
                 )
             
             # Fallback Strategy 2: If still no results and query was "howto", try "error"
             if not results and query_type == "howto":
                 logger.info(f"No results for howto, trying error type")
-                results = await self.vector_search.search(
+                search_attempts.append("fallback:error")
+                results, _ = await self.vector_search.search(
                     query=search_query,
                     entry_type="error",
                     user_type=user_type_filter,
-                    k=settings.MAX_SEARCH_RESULTS
+                    k=settings.MAX_SEARCH_RESULTS,
+                    query_embeddings=cached_embeddings  # Reuse embeddings
                 )
             
             # Fallback Strategy 3: If query was misclassified as "definition" but contains "error"
             if not results and query_type == "definition" and "error" in search_query.lower():
                 logger.info(f"Definition query contains 'error', trying error type")
-                results = await self.vector_search.search(
+                search_attempts.append("fallback:error_detected")
+                results, _ = await self.vector_search.search(
                     query=search_query,
                     entry_type="error",
                     user_type=user_type_filter,
-                    k=settings.MAX_SEARCH_RESULTS
+                    k=settings.MAX_SEARCH_RESULTS,
+                    query_embeddings=cached_embeddings  # Reuse embeddings
                 )
             
             if results:
                 # Extract contexts from results
                 contexts = [r["content"] for r in results if r["content"]]
+                
+                # Calculate best similarity score for overall confidence
+                best_similarity = max([r["similarity_score"] for r in results]) if results else 0.0
+                
+                # Build sources with proper metadata and individual similarity scores
                 sources = [{
-                    "content": r["content"][:200] + "..." if len(r["content"]) > 200 else r["content"],
+                    "title": r["metadata"].get("title", "Untitled Entry"),
+                    "section": r["entry_type"], 
+                    "confidence": r["similarity_score"],  # Use individual similarity score
+                    "content_preview": r["content"][:200] + "..." if len(r["content"]) > 200 else r["content"],
                     "metadata": r["metadata"],
                     "entry_type": r["entry_type"],
-                    "user_type": r["user_type"]
+                    "user_type": r["user_type"],
+                    "similarity_score": r["similarity_score"]
                 } for r in results]
                 
                 # Generate response using LLM
                 response = await self.generate_response(query, contexts)
                 
-                self.session_manager.add_message(session_id, "assistant", response)
+                # self.session_manager.add_message(session_id, "assistant", response) # COMMENTED OUT for performance
                 
-                # Check if confidence is too low - trigger escalation for low confidence
-                requires_escalation = confidence < 0.9  # Trigger escalation if confidence below 90%
+                # Use similarity score for escalation decision (lowered threshold)
+                requires_escalation = best_similarity < 0.7  # Use similarity score, not classification!
+                
+                # DEBUG: Log what we're sending to frontend
+                logger.info(f"🔍 SENDING TO FRONTEND - Similarity: {best_similarity}, Classification: {confidence}, Escalation: {requires_escalation}")
                 
                 return {
                     "response": response,
-                    "confidence": confidence,
+                    "confidence": best_similarity,  # Use best similarity score
+                    "classification_confidence": confidence,  # Keep for debugging
                     "sources": sources,
                     "query_type": query_type,
                     "search_type": "metadata_filtered",
+                    "search_attempts": search_attempts,  # Add search attempts
                     "requires_escalation": requires_escalation
                 }
             else:
                 # No results found - use fallback
                 response = await self.generate_fallback_response(query)
-                self.session_manager.add_message(session_id, "assistant", response)
+                # self.session_manager.add_message(session_id, "assistant", response) # COMMENTED OUT for performance
                 
                 # Log failed query for analysis
                 logger.warning(f"No results found for query: {query} with entry_type: {entry_type}")

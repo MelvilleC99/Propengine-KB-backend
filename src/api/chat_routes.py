@@ -1,6 +1,6 @@
 """Chat API routes for the support agent"""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict
 from datetime import datetime
@@ -8,6 +8,7 @@ import logging
 from src.agent.orchestrator import Agent
 from src.memory.session_manager import SessionManager
 from src.database.connection import AstraDBConnection
+from src.utils.rate_limiter import check_rate_limit
 
 logger = logging.getLogger(__name__)
 
@@ -32,11 +33,18 @@ class ChatResponse(BaseModel):
     query_type: Optional[str] = Field(None, description="Detected query type")
     timestamp: str = Field(..., description="Response timestamp")
     requires_escalation: bool = Field(False, description="Whether the query requires escalation to human agent")
+    # Add debug fields
+    classification_confidence: Optional[float] = Field(None, description="Pattern matching confidence for debugging")
+    search_attempts: Optional[List[str]] = Field(default_factory=list, description="Search attempts made for debugging")
 
 @router.post("/", response_model=ChatResponse)
-async def chat(request: ChatRequest):
-    """Main chat endpoint"""
+async def chat(request: ChatRequest, http_request: Request):
+    """Main chat endpoint with rate limiting"""
     try:
+        # Apply rate limiting
+        user_email = request.user_info.get("email") if request.user_info else None
+        rate_limit_info = check_rate_limit(http_request, "chat", user_email)
+        
         # Get or create session
         if request.session_id:
             session = session_manager.get_session(request.session_id)
@@ -55,16 +63,58 @@ async def chat(request: ChatRequest):
             user_info=request.user_info
         )
         
+        # Log only essential interactions to Firebase
+        # Only log if: escalation, low confidence, or feedback requested
+        should_log_detailed = (
+            result.get("requires_escalation", False) or
+            result.get("confidence", 1.0) < 0.7 or
+            "feedback" in request.message.lower()
+        )
+        
+        if should_log_detailed:
+            # Log user message for analysis
+            session_manager.add_message(
+                session_id=session_id,
+                role="user", 
+                content=request.message,
+                metadata={
+                    "confidence": result.get("confidence", 0.0),
+                    "requires_escalation": result.get("requires_escalation", False),
+                    "timestamp": datetime.now().isoformat(),
+                    "reason": "low_confidence_or_escalation"
+                }
+            )
+            
+            # Log agent response for problematic cases
+            session_manager.add_message(
+                session_id=session_id,
+                role="assistant",
+                content=result["response"],
+                metadata={
+                    "confidence": result.get("confidence", 0.0),
+                    "query_type": result.get("query_type"),
+                    "sources_count": len(result.get("sources", [])),
+                    "requires_escalation": result.get("requires_escalation", False),
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+        else:
+            # Just update session activity timestamp for successful queries
+            session = session_manager.get_session(session_id)
+            # Session get already updates last_activity, so this is lightweight
+        
         # Update session metadata if search was performed
         if "search_type" in result:
-            current_searches = session_manager.sessions[session_id]["metadata"].get("searches_performed", [])
+            # For Firebase sessions, we'll track this in message metadata instead
+            # The old direct sessions access won't work with Firebase backend
             search_info = {
                 "query_type": result.get("query_type"),
                 "search_type": result.get("search_type"),
                 "timestamp": datetime.now().isoformat()
             }
-            current_searches.append(search_info)
-            session_manager.update_metadata(session_id, "searches_performed", current_searches)
+            logger.info(f"Search performed: {search_info}")
+            # Use the update_metadata method for in-memory fallback sessions
+            session_manager.update_metadata(session_id, "searches_performed", [search_info])
         
         return ChatResponse(
             response=result["response"],
@@ -73,12 +123,28 @@ async def chat(request: ChatRequest):
             sources=result.get("sources", []),
             query_type=result.get("query_type"),
             timestamp=datetime.now().isoformat(),
-            requires_escalation=result.get("requires_escalation", False)
+            requires_escalation=result.get("requires_escalation", False),
+            classification_confidence=result.get("classification_confidence"),
+            search_attempts=result.get("search_attempts", [])
         )
         
     except Exception as e:
         logger.error(f"Chat endpoint error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error type: {type(e).__name__}")
+        logger.error(f"Error details: {str(e)}")
+        
+        # Import here to avoid circular imports
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        
+        # Return more helpful error information
+        error_detail = {
+            "error": str(e),
+            "type": type(e).__name__,
+            "message": "Internal server error - check logs for details"
+        }
+        
+        raise HTTPException(status_code=500, detail=error_detail)
 
 @router.get("/health")
 async def health_check():

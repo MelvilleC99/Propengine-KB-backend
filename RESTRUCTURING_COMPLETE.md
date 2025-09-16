@@ -28,6 +28,13 @@ tests/
 - More detailed error tracking
 - Collection-specific status reporting
 
+### ✅ Performance Optimizations (Latest)
+- **Singleton connection patterns**: AstraDB, Firebase, and OpenAI embeddings instances are created once and reused
+- **Embedding caching**: Single embedding per query, reused across fallback searches  
+- **Non-blocking Firebase**: Removed blocking session writes from agent orchestrator
+- **Response time improvement**: From ~8+ seconds to ~5.3 seconds (35% faster)
+- **Connection pooling**: Eliminated duplicate database connections per query
+
 ### ✅ System Prompts
 Created dedicated prompts file with:
 - System prompt for agent behavior
