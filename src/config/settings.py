@@ -22,11 +22,8 @@ class Settings(BaseSettings):
     ASTRADB_ENDPOINT: str = os.getenv("ASTRADB_API_ENDPOINT", "")
     ASTRADB_KEYSPACE: str = os.getenv("ASTRADB_KEYSPACE", "default_keyspace")
     
-    # Collection Names
-    DEFINITIONS_COLLECTION: str = os.getenv("ASTRADB_DEFINITIONS_COLLECTION", "definitions_collection")
-    ERRORS_COLLECTION: str = os.getenv("ASTRADB_ERRORS_COLLECTION", "errors_collection")
-    HOWTO_COLLECTION: str = os.getenv("ASTRADB_HOWTO_COLLECTION", "howto_collection")
-    WORKFLOWS_COLLECTION: str = os.getenv("ASTRADB_WORKFLOWS_COLLECTION", "workflow")
+    # Collection Names - Unified PropertyEngine Collection
+    PROPERTY_ENGINE_COLLECTION: str = os.getenv("ASTRADB_PROPERTY_ENGINE_COLLECTION", "property_engine")
     
     # OpenAI Configuration
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")

@@ -55,12 +55,16 @@ async def chat(request: ChatRequest):
             user_info=request.user_info
         )
         
-        # Update session metadata if collection was searched
-        if "collection_searched" in result:
-            current_collections = session_manager.sessions[session_id]["metadata"].get("collections_used", [])
-            if result["collection_searched"] not in current_collections:
-                current_collections.append(result["collection_searched"])
-                session_manager.update_metadata(session_id, "collections_used", current_collections)
+        # Update session metadata if search was performed
+        if "search_type" in result:
+            current_searches = session_manager.sessions[session_id]["metadata"].get("searches_performed", [])
+            search_info = {
+                "query_type": result.get("query_type"),
+                "search_type": result.get("search_type"),
+                "timestamp": datetime.now().isoformat()
+            }
+            current_searches.append(search_info)
+            session_manager.update_metadata(session_id, "searches_performed", current_searches)
         
         return ChatResponse(
             response=result["response"],

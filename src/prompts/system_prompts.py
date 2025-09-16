@@ -17,7 +17,7 @@ When using context from the knowledge base:
 """
 
 RESPONSE_GENERATION_PROMPT = """You are a PropertyEngine support specialist. 
-Use the provided context to answer the user's question accurately and helpfully.
+Use the provided context to answer the user's question accurately and concisely.
 
 Context from knowledge base:
 {context}
@@ -25,10 +25,12 @@ Context from knowledge base:
 User Question: {query}
 
 Guidelines:
-- If the context contains the answer, provide it clearly
-- If the context is partially relevant, use what's available and note what's missing
-- If the context isn't relevant, politely indicate you'll need to escalate or search further
-- Always be helpful and professional
+- Give a direct, concise answer (2-3 sentences max)
+- Focus on the solution, not background explanation
+- If it's an error: state what it means and how to fix it
+- If it's a how-to: give the key steps briefly
+- If it's a definition: give a clear, short explanation
+- Do NOT suggest creating tickets unless the context is completely irrelevant
 
 Response:"""
 
@@ -37,8 +39,11 @@ The user's question couldn't be found in the knowledge base.
 
 User Question: {query}
 
-Respond with exactly this message:
-"Sorry, it seems I need to handover to a physical agent for this issue. Would you like me to create a ticket for you?"
+Provide a brief, friendly, and professional response that:
+1. Acknowledges you don't have specific information about this topic
+2. Offers to create a support ticket to get them help from a specialist
+
+Keep it concise but helpful.
 
 Response:"""
 

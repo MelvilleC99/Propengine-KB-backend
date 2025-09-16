@@ -22,39 +22,29 @@ class AstraDBConnection:
             model=settings.EMBEDDING_MODEL
         )
         
-        # Collection names
-        self.collections = {
-            "definitions": settings.DEFINITIONS_COLLECTION,
-            "errors": settings.ERRORS_COLLECTION,
-            "howto": settings.HOWTO_COLLECTION,
-            "workflows": settings.WORKFLOWS_COLLECTION
-        }
+        # Single unified collection
+        self.collection_name = settings.PROPERTY_ENGINE_COLLECTION
     
     async def test_connection(self) -> Dict[str, bool]:
-        """Test connection to all collections"""
-        results = {}
-        
-        for collection_type, collection_name in self.collections.items():
-            try:
-                # Create a temporary vector store to test connection
-                vector_store = AstraDBVectorStore(
-                    token=self.token,
-                    api_endpoint=self.endpoint,
-                    collection_name=collection_name,
-                    namespace=self.keyspace,
-                    embedding=self.embeddings
-                )
-                
-                # Just verify the collection exists and is accessible
-                # Don't do a search since collections might be empty
-                results[collection_type] = True
-                logger.info(f"✓ {collection_type} collection accessible")
-                
-            except Exception as e:
-                results[collection_type] = False
-                logger.error(f"✗ {collection_type} collection error: {str(e)[:100]}")
-        
-        return results
+        """Test connection to the unified PropertyEngine collection"""
+        try:
+            # Create a temporary vector store to test connection
+            vector_store = AstraDBVectorStore(
+                token=self.token,
+                api_endpoint=self.endpoint,
+                collection_name=self.collection_name,
+                namespace=self.keyspace,
+                embedding=self.embeddings
+            )
+            
+            # Just verify the collection exists and is accessible
+            # Don't do a search since collection might be empty
+            logger.info(f"✓ PropertyEngine collection ({self.collection_name}) accessible")
+            return {"property_engine": True}
+            
+        except Exception as e:
+            logger.error(f"✗ PropertyEngine collection error: {str(e)[:100]}")
+            return {"property_engine": False}
     
     def get_status(self) -> str:
         """Get overall database status"""
