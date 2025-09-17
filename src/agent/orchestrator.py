@@ -188,8 +188,22 @@ class Agent:
                     "similarity_score": r["similarity_score"]
                 } for r in results]
                 
+                # Get conversation context from session
+                conversation_context = ""
+                try:
+                    session = self.session_manager.get_session(session_id)
+                    if session and "messages" in session:
+                        # Get last few messages for context
+                        recent_messages = session["messages"][-4:]  # Last 4 messages
+                        conversation_context = "\n".join([
+                            f"{msg.get('role', 'user')}: {msg.get('content', '')}" 
+                            for msg in recent_messages
+                        ])
+                except Exception as e:
+                    logger.warning(f"Could not get conversation context: {e}")
+                
                 # Generate response using LLM
-                response = await self.generate_response(query, contexts)
+                response = await self.generate_response(query, contexts, conversation_context)
                 
                 # self.session_manager.add_message(session_id, "assistant", response) # COMMENTED OUT for performance
                 
@@ -238,11 +252,12 @@ class Agent:
                 "error": str(e)
             }
     
-    async def generate_response(self, query: str, contexts: List[str]) -> str:
+    async def generate_response(self, query: str, contexts: List[str], conversation_context: str = "") -> str:
         """Generate response using LLM with retrieved context"""
         context_text = "\n\n".join(contexts[:3])  # Use top 3 contexts
         
         prompt = RESPONSE_GENERATION_PROMPT.format(
+            conversation_context=conversation_context,
             context=context_text,
             query=query
         )
