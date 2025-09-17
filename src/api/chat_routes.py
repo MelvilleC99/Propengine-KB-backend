@@ -161,7 +161,7 @@ async def health_check():
             "services": {
                 "database": "connected" if all_connected else "partial",
                 "agent": "running",
-                "sessions": len(session_manager.sessions),
+                "sessions": len(session_manager.memory_sessions),
                 "collections": connection_results
             }
         }
