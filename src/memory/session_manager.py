@@ -1,25 +1,41 @@
-"""Session management with Firebase persistence"""
+"""Session management with Redis caching and Firebase persistence"""
 
 from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 import logging
 from src.database.firebase_session import FirebaseSessionManager
+from src.memory.context_cache import RedisContextCache
 
 logger = logging.getLogger(__name__)
 
 class SessionManager:
-    """Manages user sessions with Firebase persistence and in-memory fallback"""
+    """
+    Manages user sessions with Redis cache for speed and Firebase for persistence
+    
+    Architecture:
+    - Redis: Fast context cache (last 8 messages per session)
+    - Firebase: Persistent storage (all messages, analytics)
+    - Memory: Fallback if both Redis and Firebase fail
+    """
     
     def __init__(self):
-        """Initialize session storage with Firebase backend"""
+        """Initialize session storage with Redis cache + Firebase persistence"""
+        # Fast Redis cache for immediate context
+        self.context_cache = RedisContextCache()
+        
+        # Firebase for persistence and analytics
         self.firebase_sessions = FirebaseSessionManager()
         
-        # Fallback in-memory storage if Firebase fails
+        # Fallback in-memory storage if both Redis and Firebase fail
         self.memory_sessions: Dict[str, Dict] = {}
         self.max_history_length = 20
         self.session_timeout = timedelta(hours=2)
         
-        logger.info("✅ SessionManager initialized with Firebase backend")
+        # Batch writing configuration
+        self.batch_counter = {}  # session_id -> message_count
+        self.batch_threshold = 5  # Write to Firebase every 5 messages
+        
+        logger.info("✅ SessionManager initialized with Redis cache + Firebase persistence")
     
     def create_session(self, user_info: Optional[Dict] = None) -> str:
         """Create a new session with Firebase persistence"""
@@ -49,23 +65,59 @@ class SessionManager:
         return self._get_memory_session(session_id)
     
     def add_message(self, session_id: str, role: str, content: str, metadata: Optional[Dict] = None) -> bool:
-        """Add message with Firebase persistence"""
-        try:
-            # Try Firebase first
-            success = self.firebase_sessions.add_message(session_id, role, content, metadata)
-            if success:
-                return True
-                
-        except Exception as e:
-            logger.error(f"❌ Firebase message logging failed: {e}")
+        """
+        Add message with Redis cache (immediate) + Firebase batch writing
         
-        # Fallback to in-memory
-        return self._add_memory_message(session_id, role, content)
+        Args:
+            session_id: Session identifier
+            role: "user" or "assistant"
+            content: Message content  
+            metadata: Optional metadata (confidence, sources, etc.)
+            
+        Returns:
+            bool: Success status
+        """
+        try:
+            # 1. Always add to Redis cache first (immediate, fast)
+            cache_success = self.context_cache.add_message(session_id, role, content, metadata)
+            
+            # 2. Increment batch counter
+            self.batch_counter[session_id] = self.batch_counter.get(session_id, 0) + 1
+            
+            # 3. Batch write to Firebase every N messages
+            if self.batch_counter[session_id] >= self.batch_threshold:
+                self._batch_write_to_firebase(session_id)
+                self.batch_counter[session_id] = 0
+            
+            return cache_success
+            
+        except Exception as e:
+            logger.error(f"❌ Error adding message to session {session_id}: {e}")
+            # Fallback to memory
+            return self._add_memory_message(session_id, role, content)
     
     def get_history(self, session_id: str, limit: int = 10) -> List[Dict]:
-        """Get conversation history with Firebase persistence"""
+        """
+        Get conversation history (Redis first, Firebase fallback)
+        
+        Args:
+            session_id: Session to get history for
+            limit: Maximum number of messages to return
+            
+        Returns:
+            List[Dict]: Recent messages in chronological order
+        """
         try:
-            # Try Firebase first
+            # Try Redis cache first (fastest)
+            messages = self.context_cache.get_messages(session_id, limit)
+            if messages:
+                return messages
+                
+        except Exception as e:
+            logger.error(f"❌ Redis history lookup failed: {e}")
+        
+        try:
+            # Fallback to Firebase
             messages = self.firebase_sessions.get_recent_messages(session_id, limit)
             if messages:
                 return messages
@@ -73,7 +125,7 @@ class SessionManager:
         except Exception as e:
             logger.error(f"❌ Firebase history lookup failed: {e}")
         
-        # Fallback to in-memory
+        # Final fallback to in-memory
         return self._get_memory_history(session_id, limit)
     
     def update_metadata(self, session_id: str, key: str, value) -> bool:
@@ -116,6 +168,83 @@ class SessionManager:
             logger.info(f"Cleared expired memory session: {session_id}")
         
         return len(expired)
+    
+    def _batch_write_to_firebase(self, session_id: str) -> bool:
+        """
+        Batch write recent messages from Redis cache to Firebase
+        Called every N messages for performance optimization
+        
+        Args:
+            session_id: Session to write messages for
+            
+        Returns:
+            bool: Success status
+        """
+        try:
+            # Get recent messages from Redis cache
+            messages = self.context_cache.get_messages(session_id, self.batch_threshold)
+            
+            if not messages:
+                return True
+            
+            # Write batch to Firebase (background task would be better)
+            success = True
+            for msg in messages:
+                try:
+                    self.firebase_sessions.add_message(
+                        session_id, 
+                        msg["role"], 
+                        msg["content"], 
+                        msg.get("metadata")
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to write message to Firebase: {e}")
+                    success = False
+            
+            if success:
+                logger.info(f"✅ Batch wrote {len(messages)} messages to Firebase for session {session_id}")
+            
+            return success
+            
+        except Exception as e:
+            logger.error(f"❌ Batch write to Firebase failed for session {session_id}: {e}")
+            return False
+    
+    def get_context_for_llm(self, session_id: str, max_messages: int = 4) -> str:
+        """
+        Get formatted conversation context for LLM processing
+        Uses Redis cache for fastest retrieval
+        
+        Args:
+            session_id: Session to get context for
+            max_messages: Maximum recent messages to include
+            
+        Returns:
+            str: Formatted conversation context
+        """
+        return self.context_cache.get_context(session_id, max_messages)
+    
+    def force_write_to_firebase(self, session_id: str) -> bool:
+        """
+        Force immediate write of all cached messages to Firebase
+        Useful for session end or critical errors
+        
+        Args:
+            session_id: Session to force write
+            
+        Returns:
+            bool: Success status
+        """
+        try:
+            messages = self.context_cache.get_messages(session_id)
+            if messages:
+                self._batch_write_to_firebase(session_id)
+                self.batch_counter[session_id] = 0
+                logger.info(f"Force wrote session {session_id} to Firebase")
+            return True
+        except Exception as e:
+            logger.error(f"Force write failed for session {session_id}: {e}")
+            return False
     
     # In-memory fallback methods
     def _create_memory_session(self, user_info: Optional[Dict] = None) -> str:

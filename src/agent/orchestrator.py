@@ -7,7 +7,9 @@ import logging
 import re
 from src.config.settings import settings
 from src.query.vector_search import VectorSearch
+from src.query.reranker import SearchReranker
 from src.memory.session_manager import SessionManager
+from src.memory.kb_analytics import KBAnalyticsTracker
 from src.utils.failsafe import create_request_tracker, with_failsafe, RequestTracker
 from src.prompts.system_prompts import (
     SYSTEM_PROMPT,
@@ -73,18 +75,21 @@ class Agent:
     """Main agent orchestrator for handling user queries"""
     
     def __init__(self):
-        """Initialize the agent with LLM and vector search"""
+        """Initialize the agent with LLM, vector search, re-ranking, and analytics tracking"""
         self.llm = ChatOpenAI(
             api_key=settings.OPENAI_API_KEY,
+            base_url=settings.OPENAI_BASE_URL,
             model=settings.OPENAI_MODEL,
             temperature=0.7
         )
         # Uses singleton connections now - no more recreating connections per query
         self.vector_search = VectorSearch()
+        self.reranker = SearchReranker()  # Add re-ranking system
         self.session_manager = SessionManager()
         self.classifier = QueryClassifier()
+        self.kb_analytics = KBAnalyticsTracker()  # Track KB usage
         
-        logger.info("Agent orchestrator initialized with singleton connections")
+        logger.info("Agent orchestrator initialized with singleton connections + re-ranking + analytics")
     
     async def process_query(
         self, 
@@ -95,8 +100,20 @@ class Agent:
     ) -> Dict:
         """Process a user query and return a response"""
         try:
-            # Add to session history - COMMENTED OUT for performance (use chat summaries instead)
-            # self.session_manager.add_message(session_id, "user", query)
+            # Store user message in cache (immediate, fast)
+            self.session_manager.add_message(session_id, "user", query)
+            
+            # CONTEXT-FIRST STRATEGY: Check conversation context before searching
+            conversation_context = self.session_manager.get_context_for_llm(session_id)
+            
+            if conversation_context.strip():
+                # Try to answer from conversation context first
+                context_answer = await self._try_answer_from_context(query, conversation_context, session_id)
+                if context_answer:
+                    return context_answer
+            
+            # If context doesn't have answer, proceed with vector search
+            logger.info(f"Context insufficient, proceeding with vector search for: {query}")
             
             # Classify query
             query_type, confidence = self.classifier.classify(query)
@@ -106,7 +123,10 @@ class Agent:
             # Handle greetings without search
             if query_type == "greeting":
                 response = "Hello! I'm here to help you with PropertyEngine. What would you like to know?"
-                # self.session_manager.add_message(session_id, "assistant", response) # COMMENTED OUT for performance
+                
+                # Store assistant response in cache
+                self.session_manager.add_message(session_id, "assistant", response)
+                
                 return {
                     "response": response,
                     "confidence": 1.0,
@@ -170,8 +190,34 @@ class Agent:
                 )
             
             if results:
-                # Extract contexts from results
-                contexts = [r["content"] for r in results if r["content"]]
+                # Re-rank results for better relevance
+                results = self.reranker.rerank_results(results, search_query)
+                
+                # Extract contexts from re-ranked results (use only key excerpts)
+                contexts = []
+                for r in results:
+                    content = r["content"]
+                    # Extract key excerpt (max 150 chars) instead of full content
+                    if len(content) > 150:
+                        # Find sentences containing query keywords
+                        sentences = content.split('.')
+                        relevant_sentences = []
+                        query_words = search_query.lower().split()
+                        
+                        for sentence in sentences:
+                            if any(word in sentence.lower() for word in query_words):
+                                relevant_sentences.append(sentence.strip())
+                                if len(' '.join(relevant_sentences)) > 100:
+                                    break
+                        
+                        if relevant_sentences:
+                            excerpt = '. '.join(relevant_sentences) + '.'
+                        else:
+                            excerpt = content[:150] + "..."
+                    else:
+                        excerpt = content
+                    
+                    contexts.append(excerpt)
                 
                 # Calculate best similarity score for overall confidence
                 best_similarity = max([r["similarity_score"] for r in results]) if results else 0.0
@@ -188,24 +234,17 @@ class Agent:
                     "similarity_score": r["similarity_score"]
                 } for r in results]
                 
-                # Get conversation context from session
-                conversation_context = ""
-                try:
-                    session = self.session_manager.get_session(session_id)
-                    if session and "messages" in session:
-                        # Get last few messages for context
-                        recent_messages = session["messages"][-4:]  # Last 4 messages
-                        conversation_context = "\n".join([
-                            f"{msg.get('role', 'user')}: {msg.get('content', '')}" 
-                            for msg in recent_messages
-                        ])
-                except Exception as e:
-                    logger.warning(f"Could not get conversation context: {e}")
+                # Get conversation context from Redis cache (fast)
+                conversation_context = self.session_manager.get_context_for_llm(session_id)
                 
                 # Generate response using LLM
                 response = await self.generate_response(query, contexts, conversation_context)
                 
-                # self.session_manager.add_message(session_id, "assistant", response) # COMMENTED OUT for performance
+                # Store assistant response in cache
+                self.session_manager.add_message(session_id, "assistant", response)
+                
+                # Track KB usage analytics
+                self.kb_analytics.track_kb_usage(sources, query, best_similarity, session_id)
                 
                 # Use similarity score for escalation decision (lowered threshold)
                 requires_escalation = best_similarity < 0.7  # Use similarity score, not classification!
@@ -226,7 +265,9 @@ class Agent:
             else:
                 # No results found - use fallback
                 response = await self.generate_fallback_response(query)
-                # self.session_manager.add_message(session_id, "assistant", response) # COMMENTED OUT for performance
+                
+                # Store assistant response in cache  
+                self.session_manager.add_message(session_id, "assistant", response)
                 
                 # Log failed query for analysis
                 logger.warning(f"No results found for query: {query} with entry_type: {entry_type}")
@@ -281,3 +322,112 @@ class Agent:
         
         response = await self.llm.ainvoke(messages)
         return response.content
+
+    
+    def _is_followup_query(self, query: str, conversation_context: str) -> bool:
+        """
+        Detect if query is a follow-up question based on context and query patterns
+        
+        Args:
+            query: Current user query
+            conversation_context: Previous conversation context
+            
+        Returns:
+            bool: True if this appears to be a follow-up question
+        """
+        if not conversation_context.strip():
+            return False
+        
+        query_lower = query.lower().strip()
+        query_words = query_lower.split()
+        
+        # Follow-up indicators
+        followup_patterns = [
+            # Confirmation questions
+            r'\bso\b.*\bonly\b',  # "so it only applies to..."
+            r'\bso\b.*\bjust\b',  # "so it just works for..."
+            r'\bthat\s+(means|is)\b',  # "that means..." / "that is..."
+            
+            # Short confirmations
+            r'^\s*(only|just|so)\b',  # Starts with "only", "just", "so"
+            r'\byes\b.*\?',  # "yes but what about...?"
+            r'\band\b.*\?',  # "and what about...?"
+            
+            # Clarification questions
+            r'\bwhat about\b',  # "what about..."
+            r'\bhow about\b',   # "how about..."
+            r'\bwhy\s+(only|not|just)\b',  # "why only...", "why not..."
+        ]
+        
+        # Check patterns
+        import re
+        for pattern in followup_patterns:
+            if re.search(pattern, query_lower):
+                return True
+        
+        # Short queries (≤6 words) with pronouns are likely follow-ups
+        if (len(query_words) <= 6 and 
+            any(pronoun in query_words for pronoun in ['it', 'that', 'this', 'they'])):
+            return True
+        
+        # Questions without subject context (assuming continuation)
+        if (len(query_words) <= 5 and 
+            query_lower.endswith('?') and
+            not any(word in query_lower for word in ['what', 'how', 'when', 'where', 'who'])):
+            return True
+        
+        return False
+
+    
+    async def _try_answer_from_context(self, query: str, conversation_context: str, session_id: str) -> Optional[Dict]:
+        """
+        Try to answer query using only conversation context
+        
+        Args:
+            query: User's query
+            conversation_context: Previous conversation context
+            session_id: Session identifier
+            
+        Returns:
+            Optional[Dict]: Response dict if context can answer, None otherwise
+        """
+        try:
+            # Ask LLM if context contains the answer
+            check_prompt = f"""Previous conversation:
+{conversation_context}
+
+New question: "{query}"
+
+Can you answer this question completely using only the previous conversation context?
+
+If YES: Provide a direct answer (1 sentence max)
+If NO: Reply with exactly "INSUFFICIENT_CONTEXT"
+
+Answer:"""
+
+            messages = [HumanMessage(content=check_prompt)]
+            response = await self.llm.ainvoke(messages)
+            answer = response.content.strip()
+            
+            if answer == "INSUFFICIENT_CONTEXT" or "insufficient" in answer.lower():
+                logger.info(f"💭 Context insufficient for query: {query}")
+                return None
+            
+            # Context has the answer!
+            logger.info(f"✅ Answered from context: '{query}' → Context-based response")
+            
+            # Store response in cache
+            self.session_manager.add_message(session_id, "assistant", answer)
+            
+            return {
+                "response": answer,
+                "confidence": 0.95,  # High confidence for context-based answers
+                "sources": [{"title": "Previous Conversation", "section": "context", "confidence": 0.95}],
+                "query_type": "context_answered", 
+                "search_type": "context_only",
+                "requires_escalation": False
+            }
+            
+        except Exception as e:
+            logger.error(f"Error checking context: {e}")
+            return None

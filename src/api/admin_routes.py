@@ -5,6 +5,7 @@ from typing import Optional, List, Dict
 from datetime import datetime
 import logging
 from src.memory.session_manager import SessionManager
+from src.memory.kb_analytics import KBAnalyticsTracker
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +13,9 @@ router = APIRouter()
 
 # Use the same session manager instance
 from src.api.chat_routes import session_manager
+
+# Initialize KB analytics tracker
+kb_analytics = KBAnalyticsTracker()
 
 @router.get("/stats")
 async def get_stats():
@@ -118,3 +122,59 @@ async def escalate_session(session_id: str, reason: Optional[str] = None):
         "reason": reason or "User requested",
         "timestamp": datetime.now().isoformat()
     }
+
+@router.get("/kb-analytics/popular")
+async def get_popular_kb_entries(limit: int = 10, entry_type: Optional[str] = None):
+    """Get most popular KB entries by usage count"""
+    try:
+        popular_entries = kb_analytics.get_popular_entries(limit, entry_type)
+        return {
+            "popular_entries": popular_entries,
+            "count": len(popular_entries),
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error getting popular KB entries: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/kb-analytics/summary")
+async def get_kb_usage_summary():
+    """Get overall KB usage summary statistics"""
+    try:
+        summary = kb_analytics.get_usage_summary()
+        return {
+            "usage_summary": summary,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error getting KB usage summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/kb-analytics/entry/{entry_title}")
+async def get_entry_analytics(entry_title: str):
+    """Get detailed analytics for a specific KB entry"""
+    try:
+        analytics = kb_analytics.get_entry_analytics(entry_title)
+        if analytics:
+            return {
+                "entry_analytics": analytics,
+                "timestamp": datetime.now().isoformat()
+            }
+        else:
+            raise HTTPException(status_code=404, detail="Entry not found or no usage data")
+    except Exception as e:
+        logger.error(f"Error getting entry analytics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/cache/health")
+async def get_cache_health():
+    """Get Redis cache health status"""
+    try:
+        health = session_manager.context_cache.health_check()
+        return {
+            "cache_health": health,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error getting cache health: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

@@ -37,13 +37,18 @@ class AstraDBConnection:
         if self._embeddings is None:
             self._embeddings = OpenAIEmbeddings(
                 openai_api_key=settings.OPENAI_API_KEY,
-                model="text-embedding-3-small"
+                base_url=settings.OPENAI_BASE_URL,
+                model=settings.EMBEDDING_MODEL,
+                dimensions=1536  # Match AstraDB collection
             )
-            logger.info("OpenAI embeddings instance created")
+            logger.info(f"OpenAI embeddings instance created with model: {settings.EMBEDDING_MODEL}")
         return self._embeddings
     
-    def get_vector_store(self, collection_name: str = "property_engine"):
+    def get_vector_store(self, collection_name: str = None):
         """Get or create vector store instance (singleton)"""
+        if collection_name is None:
+            collection_name = settings.PROPERTY_ENGINE_COLLECTION
+            
         if self._vector_store is None:
             try:
                 self._vector_store = AstraDBVectorStore(
@@ -51,11 +56,13 @@ class AstraDBConnection:
                     collection_name=collection_name,
                     token=self.token,
                     api_endpoint=self.endpoint,
-                    namespace=self.keyspace
+                    namespace=self.keyspace,
+                    setup_mode="off"  # Don't try to create collection, assume it exists
                 )
                 logger.info(f"✅ AstraDB vector store created for collection: {collection_name}")
             except Exception as e:
                 logger.error(f"❌ Failed to create AstraDB vector store: {e}")
+                logger.error(f"Collection: {collection_name}, Endpoint: {self.endpoint}, Keyspace: {self.keyspace}")
                 raise
         return self._vector_store
     

@@ -8,8 +8,9 @@ from fastapi.middleware.cors import CORSMiddleware
 import logging
 from contextlib import asynccontextmanager
 from src.config.settings import settings
-from src.api import chat_routes, admin_routes
+from src.api import chat_routes, admin_routes, kb_routes
 from src.database.connection import AstraDBConnection
+from src.database.firebase_admin import initialize_firebase, test_firebase_connection
 
 # Configure logging with more detailed format
 logging.basicConfig(
@@ -26,6 +27,17 @@ async def lifespan(app: FastAPI):
     logger.info("Starting PropEngine Support Agent...")
     logger.info(f"Environment: {'Development' if settings.DEBUG else 'Production'}")
     logger.info("=" * 60)
+    
+    # Initialize Firebase
+    try:
+        initialize_firebase()
+        firebase_ok = await test_firebase_connection()
+        if firebase_ok:
+            logger.info("✅ Firebase Admin SDK connected successfully")
+        else:
+            logger.warning("⚠️ Firebase connection test failed")
+    except Exception as e:
+        logger.error(f"❌ Firebase initialization failed: {e}")
     
     # Test AstraDB connection
     try:
@@ -69,6 +81,7 @@ app.add_middleware(
 # Include routers
 app.include_router(chat_routes.router, prefix="/api/chat", tags=["chat"])
 app.include_router(admin_routes.router, prefix="/api/admin", tags=["admin"])
+app.include_router(kb_routes.router, tags=["kb"])
 
 @app.get("/")
 async def root():
