@@ -146,7 +146,7 @@ def chunk_definition(entry: Dict[str, Any]) -> List[Chunk]:
         parent_id=entry.get("id"),
         parent_title=entry.get("title", "Untitled"),
         metadata={
-            "type": "definition",
+            "entryType": "definition",
             "category": entry.get("category"),
             "userType": entry.get("metadata", {}).get("userType", "internal"),
             "product": entry.get("metadata", {}).get("product", "property_engine"),
@@ -205,7 +205,7 @@ def chunk_error(entry: Dict[str, Any]) -> List[Chunk]:
         parent_id=entry.get("id"),
         parent_title=entry.get("title", "Untitled"),
         metadata={
-            "type": "error",
+            "entryType": "error",
             "category": entry.get("category"),
             "userType": entry.get("metadata", {}).get("userType", "internal"),
             "product": entry.get("metadata", {}).get("product", "property_engine"),
@@ -333,7 +333,7 @@ def chunk_how_to(entry: Dict[str, Any]) -> List[Chunk]:
             parent_id=entry_id,
             parent_title=entry_title,
             metadata={
-                "type": entry.get("type"),
+                "entryType": entry.get("type"),
                 "category": entry.get("category"),
                 "subcategory": entry.get("metadata", {}).get("subcategory"),
                 "userType": entry.get("metadata", {}).get("userType", "internal"),
@@ -387,7 +387,7 @@ def chunk_single(entry: Dict[str, Any]) -> List[Chunk]:
         parent_id=entry.get("id"),
         parent_title=entry.get("title", "Untitled"),
         metadata={
-            "type": entry.get("type", "unknown"),
+            "entryType": entry.get("type", "unknown"),
             "category": entry.get("category"),
             "userType": entry.get("metadata", {}).get("userType", "internal"),
             "product": entry.get("metadata", {}).get("product", "property_engine"),

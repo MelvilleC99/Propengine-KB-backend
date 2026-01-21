@@ -8,7 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import logging
 from contextlib import asynccontextmanager
 from src.config.settings import settings
-from src.api import chat_routes, admin_routes, kb_routes
+from src.api import admin_routes, kb_routes
+from src.api import test_agent_routes, support_agent_routes, customer_agent_routes
 from src.database.connection import AstraDBConnection
 from src.database.firebase_admin import initialize_firebase, test_firebase_connection
 
@@ -79,7 +80,9 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(chat_routes.router, prefix="/api/chat", tags=["chat"])
+app.include_router(test_agent_routes.router, tags=["test-agent"])
+app.include_router(support_agent_routes.router, tags=["support-agent"])
+app.include_router(customer_agent_routes.router, tags=["customer-agent"])
 app.include_router(admin_routes.router, prefix="/api/admin", tags=["admin"])
 app.include_router(kb_routes.router, tags=["kb"])
 
@@ -92,6 +95,11 @@ async def root():
         "status": "running",
         "endpoints": {
             "chat": "/api/chat/",
+            "agents": {
+                "test": "/api/agent/test",
+                "support": "/api/agent/support",
+                "customer": "/api/agent/customer"
+            },
             "admin": "/api/admin/stats",
             "health": "/api/chat/health",
             "docs": "/docs"

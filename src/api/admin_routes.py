@@ -11,8 +11,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Use the same session manager instance
-from src.api.chat_routes import session_manager
+# Initialize session manager
+session_manager = SessionManager()
 
 # Initialize KB analytics tracker
 kb_analytics = KBAnalyticsTracker()

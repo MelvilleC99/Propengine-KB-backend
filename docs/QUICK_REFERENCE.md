@@ -1,105 +1,217 @@
-# 🎯 QUICK REFERENCE - Where Does It Go?
+# Quick Reference Card - PropertyEngine KB System
+
+## 🚀 Most Common Operations
+
+### Create & Sync Entry
+```bash
+# 1. Create
+POST /api/kb/entries
+{
+  "type": "how_to",
+  "title": "Entry Title",
+  "content": "Searchable text",
+  "metadata": {"category": "...", "userType": "internal"},
+  "rawFormData": {...}
+}
+→ Returns: { "entry_id": "abc123" }
+
+# 2. Sync to vectors
+POST /api/kb/entries/abc123/sync
+→ Returns: { "chunks_created": 5 }
+```
+
+### Update & Re-sync
+```bash
+PUT /api/kb/entries/abc123
+{"content": "Updated..."}
+
+POST /api/kb/entries/abc123/sync
+```
+
+### Delete Entry
+```bash
+# Permanent
+DELETE /api/kb/entries/abc123
+
+# Archive (soft delete)
+POST /api/kb/entries/abc123/archive
+```
 
 ---
 
-## 📖 **READING DATA (Display/List)**
+## 📊 Entry Types & Chunking
 
-### **Route:** Frontend → Firebase (Direct)
+| Type | Chunks | Sections |
+|------|--------|----------|
+| `definition` | 1 | Full content |
+| `error` | 1 | Full content |
+| `how_to` | 3-5 | overview, prerequisites, steps, issues, tips |
+| `workflow` | 3-5 | Same as how_to |
 
-**Operations:**
-- View entries list
-- Filter entries
-- Search entries
-- Display entry details
-- View archived entries
+---
 
-**Why Direct?**
-- ✅ Fast (no backend)
-- ✅ Simple (just reading)
-- ✅ Less server load
+## 🔍 Metadata Fields
 
-**Code:**
-```typescript
-// In api-client.ts
-export async function getKBEntries() {
-  return getKBEntriesFirebase();  // Direct Firebase!
+### Required Fields
+```json
+{
+  "entryType": "how_to",        // ⚠️ Use "entryType" not "type"!
+  "userType": "internal",       // internal|external
+  "category": "integrations"
+}
+```
+
+### Optional Fields
+```json
+{
+  "subcategory": "api",
+  "product": "property_engine",
+  "tags": ["crm", "setup"],
+  "section": "prerequisites"     // Auto-added for chunks
 }
 ```
 
 ---
 
-## ✏️ **WRITING DATA (Create/Update/Delete)**
+## 🔗 Chunk ID Pattern
 
-### **Route:** Frontend → Backend → Firebase
+```
+{parent_id}_chunk_{index}
 
-**Operations:**
-- Create new entry
-- Update entry
-- Delete entry
-- Archive entry
-- Restore entry
-
-**Why Backend?**
-- ✅ Secure (credentials hidden)
-- ✅ Validation (check data)
-- ✅ Business logic (processing)
-
-**Code:**
-```typescript
-// In api-client.ts
-export async function createKBEntry(data) {
-  return fetch(`${BACKEND_URL}/api/kb/entries`, {
-    method: 'POST',
-    body: JSON.stringify(data)
-  });
-}
+Example:
+abc123_chunk_0  → Overview
+abc123_chunk_1  → Prerequisites
+abc123_chunk_2  → Steps
 ```
 
 ---
 
-## 🤖 **PROCESSING DATA (Embeddings/Sync)**
+## 📡 All Endpoints
 
-### **Route:** Frontend → Backend → Vector DB
+### CRUD Operations
+```
+POST   /api/kb/entries           Create
+GET    /api/kb/entries           List all
+GET    /api/kb/entries/{id}      Get one
+PUT    /api/kb/entries/{id}      Update
+DELETE /api/kb/entries/{id}      Delete
+POST   /api/kb/entries/{id}/archive  Archive
+```
 
-**Operations:**
-- Sync to vector database
-- Generate embeddings
-- Vector search
-
-**Why Backend?**
-- ✅ Compute intensive
-- ✅ Requires AI models
-- ✅ Multiple DB coordination
-
-**Code:**
-```typescript
-// In api-client.ts
-export async function syncEntry(id) {
-  return fetch(`${BACKEND_URL}/api/kb/entries/${id}/sync`, {
-    method: 'POST'
-  });
-}
+### Vector Operations
+```
+POST   /api/kb/entries/{id}/sync     Sync to vectors
+GET    /api/kb/vectors               List vectors
+DELETE /api/kb/vectors/{id}          Delete vector(s)
+GET    /api/kb/stats/vectors         Get stats
 ```
 
 ---
 
-## 🎓 **REMEMBER:**
-
-**If you're just LOOKING at data** → Firebase Direct  
-**If you're CHANGING data** → Backend API  
-**If you're PROCESSING data** → Backend API
-
----
-
-## 🔍 **QUICK DECISION TREE:**
+## 🎯 Vector Status Flow
 
 ```
-Does this operation just READ data?
-├─ YES → Use Firebase directly (fast!)
-└─ NO → Does it WRITE or PROCESS?
-    └─ YES → Use Backend API (secure!)
+Created → "pending"
+   ↓
+Synced → "synced"
+   ↓
+Updated → "pending" (must re-sync)
+   ↓
+Deleted → vectors removed
 ```
 
 ---
 
-**Simple!** 🎉
+## 🧪 Testing
+
+```bash
+# Test metadata consistency
+python test_metadata_fix.py
+
+# Check vector DB
+GET /api/kb/vectors?limit=10
+
+# Verify entry
+GET /api/kb/entries/{id}
+```
+
+---
+
+## ⚠️ Common Mistakes
+
+❌ **Using "type" instead of "entryType"**
+```json
+{"type": "definition"}  // WRONG
+```
+✅ **Correct**
+```json
+{"entryType": "definition"}  // RIGHT
+```
+
+❌ **Forgetting to sync after update**
+```bash
+PUT /api/kb/entries/{id}
+# Vectors are now outdated!
+```
+✅ **Correct**
+```bash
+PUT /api/kb/entries/{id}
+POST /api/kb/entries/{id}/sync  # Re-sync!
+```
+
+❌ **Not checking vectorStatus**
+```json
+{"vectorStatus": "pending"}  // Not searchable yet!
+```
+
+---
+
+## 🗂️ File Locations
+
+### Backend
+```
+/src/api/kb_routes.py          → API endpoints
+/src/mcp/firebase/server.py    → Firebase ops
+/src/mcp/astradb/server.py     → Vector ops
+/src/mcp/vector_sync/server.py → Sync orchestration
+/src/mcp/vector_sync/chunking.py → Chunking logic
+```
+
+### Docs
+```
+/docs/DB_Endpoints.md    → Complete API reference
+/docs/Chunking.md        → Chunking system docs
+/docs/README.md          → Documentation index
+METADATA_FIX.md          → Recent fix notes
+```
+
+---
+
+## 🔧 Troubleshooting
+
+### Entry not found in search?
+1. Check `vectorStatus` is "synced"
+2. Verify metadata fields (use `entryType`)
+3. Test with direct chunk query
+
+### Sync failed?
+1. Check Firebase entry exists
+2. Verify `rawFormData` structure
+3. Review logs for errors
+
+### Too many/few chunks?
+1. Check entry type
+2. Verify `rawFormData` sections
+3. See Chunking.md for logic
+
+---
+
+## 📚 Full Documentation
+
+- **Complete API Guide**: `docs/DB_Endpoints.md`
+- **Chunking System**: `docs/Chunking.md`
+- **Getting Started**: `docs/README.md`
+
+---
+
+**Print this card and keep it handy!** 🎉
