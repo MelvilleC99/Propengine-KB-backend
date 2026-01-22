@@ -5,7 +5,7 @@ from typing import List, Dict, Optional, Any
 from langchain_astradb import AstraDBVectorStore
 from langchain.schema import Document
 from src.config.settings import settings
-from src.database.connection import astradb_connection
+from src.database.astra_client import astradb_connection
 
 logger = logging.getLogger(__name__)
 

@@ -8,7 +8,7 @@ from src.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
-class AstraDBConnection:
+class AstraDBClient:
     """Singleton AstraDB connection manager"""
     
     _instance = None
@@ -90,4 +90,8 @@ class AstraDBConnection:
             return False
 
 # Global singleton instance
-astradb_connection = AstraDBConnection()
+astra_client = AstraDBClient()
+
+# Backwards compatibility alias
+AstraDBConnection = AstraDBClient
+astradb_connection = astra_client

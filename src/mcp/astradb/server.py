@@ -2,7 +2,7 @@
 
 from typing import Dict, Any, List, Optional
 import logging
-from src.database.connection import AstraDBConnection
+from src.database.astra_client import AstraDBConnection
 
 logger = logging.getLogger(__name__)
 
@@ -120,44 +120,76 @@ class AstraDBMCP:
             }
         """
         try:
-            # Try to delete all chunks for this entry
-            # This uses metadata filtering to find all chunks
-            deleted_count = 0
+            deleted_ids = []
+            collection = self.vector_store.astra_env.collection
             
+            # Strategy: Try to get ONE chunk to find total_chunks metadata
+            # Then delete all chunks in one go
+            
+            # 1. First, try direct delete of single entry
             try:
-                # Delete all vectors where parent_entry_id matches
-                self.vector_store.delete(
-                    filter={"parent_entry_id": entry_id}
-                )
-                deleted_count += 1
-                logger.info(f"🗑️ Deleted chunk vectors for entry: {entry_id}")
-            except Exception as chunk_error:
-                logger.warning(f"No chunks found for {entry_id}, trying direct delete: {chunk_error}")
+                result = collection.delete_one({"_id": entry_id})
+                if result.deleted_count > 0:
+                    deleted_ids.append(entry_id)
+                    logger.info(f"🗑️ Deleted single document: {entry_id}")
+                    # If single doc found, we're done
+                    return {
+                        "success": True,
+                        "entry_id": entry_id,
+                        "deleted_count": 1,
+                        "deleted_ids": deleted_ids
+                    }
+            except Exception as e:
+                logger.debug(f"No single document: {e}")
             
-            # Also try direct deletion (for legacy single-vector entries)
+            # 2. If not a single doc, it must be chunks. Get first chunk to find total
             try:
-                self.vector_store.delete(ids=[entry_id])
-                deleted_count += 1
-                logger.info(f"🗑️ Deleted direct vector for entry: {entry_id}")
-            except Exception as direct_error:
-                logger.warning(f"No direct vector found for {entry_id}: {direct_error}")
-            
-            if deleted_count == 0:
-                logger.warning(f"⚠️ No vectors found to delete for entry: {entry_id}")
-            else:
-                logger.info(f"✅ Deleted vectors for entry: {entry_id}")
-            
-            return {
-                "success": True,
-                "entry_id": entry_id,
-                "deleted_count": deleted_count
-            }
+                first_chunk_id = f"{entry_id}_chunk_0"
+                first_chunk = collection.find_one({"_id": first_chunk_id})
+                
+                if first_chunk:
+                    # Get total chunks from metadata
+                    total_chunks = first_chunk.get("total_chunks", 10)  # Default to 10 if missing
+                    logger.info(f"📦 Found chunked entry with {total_chunks} chunks")
+                    
+                    # Build list of all chunk IDs
+                    chunk_ids = [f"{entry_id}_chunk_{i}" for i in range(total_chunks)]
+                    
+                    # Delete all chunks using delete_many
+                    result = collection.delete_many({"_id": {"$in": chunk_ids}})
+                    deleted_count = result.deleted_count
+                    
+                    logger.info(f"✅ Deleted {deleted_count} chunks for entry: {entry_id}")
+                    
+                    return {
+                        "success": True,
+                        "entry_id": entry_id,
+                        "deleted_count": deleted_count,
+                        "deleted_ids": chunk_ids[:deleted_count]
+                    }
+                else:
+                    logger.warning(f"⚠️ No chunks found for entry: {entry_id}")
+                    return {
+                        "success": False,
+                        "entry_id": entry_id,
+                        "deleted_count": 0,
+                        "error": "No vectors found"
+                    }
+                    
+            except Exception as e:
+                logger.error(f"❌ Error deleting chunks: {e}")
+                return {
+                    "success": False,
+                    "error": str(e),
+                    "deleted_count": 0
+                }
             
         except Exception as e:
             logger.error(f"❌ Failed to delete vector for {entry_id}: {e}")
             return {
                 "success": False,
-                "error": str(e)
+                "error": str(e),
+                "deleted_count": 0
             }
     
     async def search_vectors(

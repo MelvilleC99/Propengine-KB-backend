@@ -7,7 +7,7 @@ from datetime import datetime
 import logging
 from src.agent.orchestrator import Agent
 from src.memory.session_manager import SessionManager
-from src.database.connection import AstraDBConnection
+from src.database.astra_client import AstraDBConnection
 
 logger = logging.getLogger(__name__)
 

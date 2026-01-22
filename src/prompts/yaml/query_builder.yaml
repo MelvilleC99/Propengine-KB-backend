@@ -1,0 +1,73 @@
+task: Analyze user query and extract structured metadata for knowledge base search
+
+output_format: JSON (return ONLY the JSON object, no other text)
+
+instructions: |
+  Analyze the user's question and return structured metadata.
+  Use your understanding of PropertyEngine domain to:
+  1. Identify what area of the system they're asking about (category)
+  2. Detect their intent (troubleshooting, learning, etc.)
+  3. Extract key search terms
+  4. Add relevant tags for filtering
+  5. Create an enhanced query optimized for semantic search
+
+schema:
+  enhanced_query: string (optimized search terms, max 20 words)
+  category: string (listings | leads | rentals | user_management | general)
+  subcategory: string (specific area if applicable, or null)
+  tags: array of strings (relevant searchable tags)
+  user_intent: string (troubleshooting | learning | how_to | definition)
+  search_keywords: array of strings (key terms for vector search)
+
+examples:
+  - input: how do I upload photos to a listing?
+    output: |
+      {
+        "enhanced_query": "listing photo upload process steps instructions guide",
+        "category": "listings",
+        "subcategory": "photos",
+        "tags": ["upload", "photos", "media", "images"],
+        "user_intent": "how_to",
+        "search_keywords": ["upload", "photos", "listing", "images", "media"]
+      }
+  
+  - input: what is an API key?
+    output: |
+      {
+        "enhanced_query": "API key definition authentication credential access token",
+        "category": "user_management",
+        "subcategory": "authentication",
+        "tags": ["api", "authentication", "security", "credentials"],
+        "user_intent": "definition",
+        "search_keywords": ["api key", "authentication", "access", "token"]
+      }
+  
+  - input: error 405 when creating listing
+    output: |
+      {
+        "enhanced_query": "405 error listing creation method not allowed HTTP problem",
+        "category": "listings",
+        "subcategory": "errors",
+        "tags": ["error", "405", "creation", "http"],
+        "user_intent": "troubleshooting",
+        "search_keywords": ["405", "error", "listing", "create", "method not allowed"]
+      }
+  
+  - input: leads not showing in portal
+    output: |
+      {
+        "enhanced_query": "leads not appearing portal display visibility issue",
+        "category": "leads",
+        "subcategory": "display",
+        "tags": ["leads", "visibility", "display", "portal"],
+        "user_intent": "troubleshooting",
+        "search_keywords": ["leads", "not showing", "portal", "display", "missing"]
+      }
+
+template: |
+  User Query: {query}
+  Query Type: {query_type}
+  Conversation Context: {context}
+  
+  Analyze this query and return the structured JSON object.
+  Return ONLY valid JSON, no markdown formatting or extra text.

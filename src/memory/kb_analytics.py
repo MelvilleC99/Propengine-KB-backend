@@ -6,7 +6,7 @@ Tracks which KB entries are used most frequently
 import logging
 from typing import Dict, List, Optional
 from datetime import datetime
-from src.database.firebase_session import FirebaseSessionManager
+from src.database.firebase_session_service import FirebaseSessionManager
 
 logger = logging.getLogger(__name__)
 
@@ -22,11 +22,23 @@ class KBAnalyticsTracker:
     """
     
     def __init__(self):
-        """Initialize analytics tracker with Firebase backend"""
-        self.firebase_sessions = FirebaseSessionManager()
+        """Initialize analytics tracker with Firebase backend (lazy)"""
+        self._firebase_sessions = None
         self.analytics_collection = "kb_analytics"
         
         logger.info("✅ KB Analytics Tracker initialized")
+    
+    @property
+    def firebase_sessions(self):
+        """Lazy load Firebase sessions (only when first used)"""
+        if self._firebase_sessions is None:
+            try:
+                self._firebase_sessions = FirebaseSessionManager()
+                logger.info("✅ Firebase session manager connected for analytics")
+            except Exception as e:
+                logger.warning(f"⚠️ Firebase session manager unavailable for analytics: {e}")
+                self._firebase_sessions = None
+        return self._firebase_sessions
     
     def track_kb_usage(self, sources: List[Dict], query: str, confidence: float, session_id: str) -> bool:
         """

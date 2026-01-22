@@ -1,95 +1,46 @@
-"""Agent orchestrator for intelligent query routing and response generation"""
+"""Agent Orchestrator - Coordinates query processing pipeline
 
-from typing import Dict, List, Optional, Tuple
-from langchain_openai import ChatOpenAI
-from langchain.schema import HumanMessage, SystemMessage
+This is the main coordinator that delegates to specialized modules.
+"""
+
+from typing import Dict, List, Optional
 import logging
-import re
+import time
 from src.config.settings import settings
 from src.query.vector_search import VectorSearch
 from src.query.reranker import SearchReranker
 from src.memory.session_manager import SessionManager
 from src.memory.kb_analytics import KBAnalyticsTracker
-from src.utils.failsafe import create_request_tracker, with_failsafe, RequestTracker
-from src.prompts.system_prompts import (
-    SYSTEM_PROMPT,
-    RESPONSE_GENERATION_PROMPT,
-    FALLBACK_PROMPT
-)
+from src.agent.classification import QueryClassifier
+from src.agent.query_processing import QueryBuilder, StructuredQuery
+from src.agent.context import ContextBuilder
+from src.agent.response import ResponseGenerator
 
 logger = logging.getLogger(__name__)
 
-class QueryClassifier:
-    """Classifies user queries to determine routing"""
-    
-    PATTERNS = {
-        "greeting": [
-            r"\b(hi|hello|hey|good morning|good afternoon)\b",
-            r"^(hi|hello|hey)$"
-        ],
-        "error": [
-            r"\berror\s*\d+\b",  # Match "error 405", "error405", etc. first
-            r"\berror\b",
-            r"\bissue\b",
-            r"\bproblem\b",
-            r"\bfail(ed|ing|ure)?\b",
-            r"\bnot work(ing)?\b"
-        ],
-        "definition": [
-            r"\bwhat (is|are|does|do)\b(?!.*\berror\b)",  # Include "what does" and "what do"
-            r"\bdefine\b",
-            r"\bmeaning of\b",
-            r"\bmean\b(?!.*\berror\b)",  # Add "mean" pattern
-            r"\btell me about\b",  # Add "tell me about" pattern
-            r"\bexplain\b(?!.*\berror\b)"  # Exclude if contains "error"
-        ],
-        "howto": [
-            r"\bhow (to|do|can)\b",
-            r"\bsteps to\b",
-            r"\bprocess for\b",
-            r"\bguide\b"
-        ],
-        "workflow": [
-            r"\bworkflow\b",
-            r"\bprocess\b",
-            r"\bautomation\b",
-            r"\bsequence\b"
-        ]
-    }
-    
-    @classmethod
-    def classify(cls, query: str) -> Tuple[str, float]:
-        """Classify query and return (type, confidence)"""
-        query_lower = query.lower().strip()
-        
-        # Check patterns
-        for query_type, patterns in cls.PATTERNS.items():
-            for pattern in patterns:
-                if re.search(pattern, query_lower, re.IGNORECASE):
-                    return query_type, 0.8
-        
-        # Default to definition for unknown queries
-        return "definition", 0.5
 
 class Agent:
-    """Main agent orchestrator for handling user queries"""
+    """Main agent orchestrator - coordinates the query processing pipeline"""
     
     def __init__(self):
-        """Initialize the agent with LLM, vector search, re-ranking, and analytics tracking"""
-        self.llm = ChatOpenAI(
-            api_key=settings.OPENAI_API_KEY,
-            base_url=settings.OPENAI_BASE_URL,
-            model=settings.OPENAI_MODEL,
-            temperature=0.7
-        )
-        # Uses singleton connections now - no more recreating connections per query
-        self.vector_search = VectorSearch()
-        self.reranker = SearchReranker()  # Add re-ranking system
-        self.session_manager = SessionManager()
+        """Initialize orchestrator with all required components"""
+        # Classification & Query Building
         self.classifier = QueryClassifier()
-        self.kb_analytics = KBAnalyticsTracker()  # Track KB usage
+        self.query_builder = QueryBuilder()
         
-        logger.info("Agent orchestrator initialized with singleton connections + re-ranking + analytics")
+        # Search & Ranking
+        self.vector_search = VectorSearch()
+        self.reranker = SearchReranker()
+        
+        # Context & Response
+        self.context_builder = ContextBuilder()
+        self.response_generator = ResponseGenerator()
+        
+        # Memory & Analytics
+        self.session_manager = SessionManager()
+        self.kb_analytics = KBAnalyticsTracker()
+        
+        logger.info("✅ Agent orchestrator initialized (modular architecture with YAML prompts)")
     
     async def process_query(
         self, 
@@ -98,243 +49,309 @@ class Agent:
         user_info: Optional[Dict] = None,
         user_type_filter: Optional[str] = None
     ) -> Dict:
-        """Process a user query and return a response"""
+        """
+        Process user query through the complete pipeline
+        
+        Pipeline:
+        1. Store user message
+        2. Check conversation context
+        3. Classify query type
+        4. Enhance query for search
+        5. Search vector database
+        6. Re-rank results
+        7. Build context
+        8. Generate response
+        9. Track analytics
+        10. Return result
+        
+        Args:
+            query: User's question
+            session_id: Conversation session ID
+            user_info: Optional user metadata
+            user_type_filter: Filter by user type (internal/external)
+            
+        Returns:
+            Dict with response, confidence, sources, etc.
+        """
+        # Start timing for analytics
+        start_time = time.time()
+        
         try:
-            # Store user message in cache (immediate, fast)
-            self.session_manager.add_message(session_id, "user", query)
+            # === STEP 1: Store user message ===
+            await self.session_manager.add_message(session_id, "user", query)
             
-            # CONTEXT-FIRST STRATEGY: Check conversation context before searching
-            conversation_context = self.session_manager.get_context_for_llm(session_id)
+            # === STEP 2: Get conversation context (messages + summary) ===
+            context_data = self.session_manager.get_context_for_llm(session_id)
+            conversation_context = context_data.get("formatted_context", "")
             
+            # Try answering from context first
             if conversation_context.strip():
-                # Try to answer from conversation context first
-                context_answer = await self._try_answer_from_context(query, conversation_context, session_id)
+                context_answer = await self._try_answer_from_context(
+                    query, conversation_context, session_id
+                )
                 if context_answer:
                     return context_answer
             
-            # If context doesn't have answer, proceed with vector search
-            logger.info(f"Context insufficient, proceeding with vector search for: {query}")
+            # === STEP 3: Classify query ===
+            query_type, classification_confidence = self.classifier.classify(query)
+            logger.info(f"📋 Query classified as '{query_type}' (confidence: {classification_confidence})")
             
-            # Classify query
-            query_type, confidence = self.classifier.classify(query)
-            logger.info(f"Query classified as {query_type} with confidence {confidence}")
-            logger.info(f"🔍 DEBUG: Classification confidence value = {confidence} (type: {type(confidence)})")
-            
-            # Handle greetings without search
+            # === STEP 4: Handle greetings (no search needed) ===
             if query_type == "greeting":
-                response = "Hello! I'm here to help you with PropertyEngine. What would you like to know?"
+                response = await self.response_generator.generate_greeting_response()
                 
-                # Store assistant response in cache
-                self.session_manager.add_message(session_id, "assistant", response)
+                # Build metadata for greeting
+                elapsed_ms = (time.time() - start_time) * 1000
+                metadata = {
+                    "query_type": query_type,
+                    "category": "greeting",
+                    "confidence_score": 1.0,
+                    "sources_found": 0,
+                    "sources_used": [],
+                    "response_time_ms": elapsed_ms,
+                    "escalated": False
+                }
+                
+                await self.session_manager.add_message(session_id, "assistant", response, metadata)
                 
                 return {
                     "response": response,
                     "confidence": 1.0,
                     "sources": [],
-                    "query_type": query_type
+                    "query_type": query_type,
+                    "classification_confidence": classification_confidence
                 }
             
-            # Determine search parameters based on query type
-            # All searches now use the unified collection with metadata filtering
-            entry_type = query_type  # Map query_type directly to entry_type
-            
-            # Clean query for search
-            search_query = self.vector_search.clean_query(query)
-            
-            # Track search attempts for debugging
-            search_attempts = []
-            cached_embeddings = None  # Cache embeddings between searches
-            
-            # Search knowledge base with metadata filtering + fallback strategy
-            search_attempts.append(f"primary:{entry_type}")
-            results, cached_embeddings = await self.vector_search.search(
-                query=search_query,
-                entry_type=entry_type,
-                user_type=user_type_filter,  # Add user type filtering
-                k=settings.MAX_SEARCH_RESULTS
+            # === STEP 5: Build structured query ===
+            structured_query = await self.query_builder.build(
+                query, 
+                query_type,
+                conversation_context
+            )
+            logger.info(
+                f"🔍 Query structured: '{query}' → "
+                f"enhanced='{structured_query.enhanced}', "
+                f"category={structured_query.category}"
             )
             
-            # Fallback Strategy 1: If no results, try without entry_type filter (reuse embeddings)
+            # === STEP 6: Search vector database ===
+            results, search_attempts = await self._search_with_fallback(
+                structured_query.enhanced,
+                query_type,
+                user_type_filter
+            )
+            
+            # === STEP 7: No results - generate fallback ===
             if not results:
-                logger.info(f"No results for {entry_type}, trying without entry_type filter")
-                search_attempts.append("fallback:no_filter")
-                results, _ = await self.vector_search.search(
-                    query=search_query,
-                    user_type=user_type_filter,  
-                    k=settings.MAX_SEARCH_RESULTS,
-                    query_embeddings=cached_embeddings  # Reuse embeddings
-                )
-            
-            # Fallback Strategy 2: If still no results and query was "howto", try "error"
-            if not results and query_type == "howto":
-                logger.info(f"No results for howto, trying error type")
-                search_attempts.append("fallback:error")
-                results, _ = await self.vector_search.search(
-                    query=search_query,
-                    entry_type="error",
-                    user_type=user_type_filter,
-                    k=settings.MAX_SEARCH_RESULTS,
-                    query_embeddings=cached_embeddings  # Reuse embeddings
-                )
-            
-            # Fallback Strategy 3: If query was misclassified as "definition" but contains "error"
-            if not results and query_type == "definition" and "error" in search_query.lower():
-                logger.info(f"Definition query contains 'error', trying error type")
-                search_attempts.append("fallback:error_detected")
-                results, _ = await self.vector_search.search(
-                    query=search_query,
-                    entry_type="error",
-                    user_type=user_type_filter,
-                    k=settings.MAX_SEARCH_RESULTS,
-                    query_embeddings=cached_embeddings  # Reuse embeddings
-                )
-            
-            if results:
-                # Re-rank results for better relevance
-                results = self.reranker.rerank_results(results, search_query)
+                logger.warning(f"❌ No results found for query: {query}")
+                fallback_response = await self.response_generator.generate_fallback_response(query)
                 
-                # Extract contexts from re-ranked results (use only key excerpts)
-                contexts = []
-                for r in results:
-                    content = r["content"]
-                    # Extract key excerpt (max 150 chars) instead of full content
-                    if len(content) > 150:
-                        # Find sentences containing query keywords
-                        sentences = content.split('.')
-                        relevant_sentences = []
-                        query_words = search_query.lower().split()
-                        
-                        for sentence in sentences:
-                            if any(word in sentence.lower() for word in query_words):
-                                relevant_sentences.append(sentence.strip())
-                                if len(' '.join(relevant_sentences)) > 100:
-                                    break
-                        
-                        if relevant_sentences:
-                            excerpt = '. '.join(relevant_sentences) + '.'
-                        else:
-                            excerpt = content[:150] + "..."
-                    else:
-                        excerpt = content
-                    
-                    contexts.append(excerpt)
-                
-                # Calculate best similarity score for overall confidence
-                best_similarity = max([r["similarity_score"] for r in results]) if results else 0.0
-                
-                # Build sources with proper metadata and individual similarity scores
-                sources = [{
-                    "title": r["metadata"].get("title", "Untitled Entry"),
-                    "section": r["entry_type"], 
-                    "confidence": r["similarity_score"],  # Use individual similarity score
-                    "content_preview": r["content"][:200] + "..." if len(r["content"]) > 200 else r["content"],
-                    "metadata": r["metadata"],
-                    "entry_type": r["entry_type"],
-                    "user_type": r["user_type"],
-                    "similarity_score": r["similarity_score"]
-                } for r in results]
-                
-                # Get conversation context from Redis cache (fast)
-                conversation_context = self.session_manager.get_context_for_llm(session_id)
-                
-                # Generate response using LLM
-                response = await self.generate_response(query, contexts, conversation_context)
-                
-                # Store assistant response in cache
-                self.session_manager.add_message(session_id, "assistant", response)
-                
-                # Track KB usage analytics
-                self.kb_analytics.track_kb_usage(sources, query, best_similarity, session_id)
-                
-                # Use similarity score for escalation decision (lowered threshold)
-                requires_escalation = best_similarity < 0.7  # Use similarity score, not classification!
-                
-                # DEBUG: Log what we're sending to frontend
-                logger.info(f"🔍 SENDING TO FRONTEND - Similarity: {best_similarity}, Classification: {confidence}, Escalation: {requires_escalation}")
-                
-                return {
-                    "response": response,
-                    "confidence": best_similarity,  # Use best similarity score
-                    "classification_confidence": confidence,  # Keep for debugging
-                    "sources": sources,
+                # Build metadata for fallback
+                elapsed_ms = (time.time() - start_time) * 1000
+                metadata = {
                     "query_type": query_type,
-                    "search_type": "metadata_filtered",
-                    "search_attempts": search_attempts,  # Add search attempts
-                    "requires_escalation": requires_escalation
+                    "category": structured_query.category,
+                    "confidence_score": 0.0,
+                    "sources_found": 0,
+                    "sources_used": [],
+                    "response_time_ms": elapsed_ms,
+                    "escalated": True
                 }
-            else:
-                # No results found - use fallback
-                response = await self.generate_fallback_response(query)
                 
-                # Store assistant response in cache  
-                self.session_manager.add_message(session_id, "assistant", response)
-                
-                # Log failed query for analysis
-                logger.warning(f"No results found for query: {query} with entry_type: {entry_type}")
+                await self.session_manager.add_message(session_id, "assistant", fallback_response, metadata)
                 
                 return {
-                    "response": response,
-                    "confidence": 0.3,
+                    "response": fallback_response,
+                    "confidence": 0.0,
                     "sources": [],
                     "query_type": query_type,
-                    "search_type": "metadata_filtered", 
-                    "note": "No matching content found in knowledge base",
-                    "requires_escalation": True
+                    "classification_confidence": classification_confidence,
+                    "requires_escalation": True,
+                    "search_attempts": search_attempts
                 }
-                
+            
+            # === STEP 8: Re-rank results ===
+            results = self.reranker.rerank_results(results, structured_query.enhanced)
+            logger.info(f"📊 Re-ranked {len(results)} results")
+            
+            # === STEP 9: Build context from results ===
+            contexts = self.context_builder.extract_contexts(results, query)
+            sources = self.context_builder.build_sources(results)
+            best_confidence = self.context_builder.calculate_best_confidence(results)
+            
+            # === STEP 10: Generate response ===
+            response = await self.response_generator.generate_response(
+                query, contexts, conversation_context
+            )
+            
+            # === STEP 11: Calculate timing ===
+            elapsed_ms = (time.time() - start_time) * 1000
+            
+            # === STEP 12: Build metadata for analytics ===
+            requires_escalation = best_confidence < 0.7
+            metadata = {
+                "query_type": query_type,
+                "category": structured_query.category,
+                "subcategory": structured_query.tags[0] if structured_query.tags else None,
+                "confidence_score": best_confidence,
+                "sources_found": len(results),
+                "sources_used": [s.get("title") for s in sources],
+                "response_time_ms": elapsed_ms,
+                "escalated": requires_escalation,
+                "user_feedback": None  # Will be updated by frontend if user gives feedback
+            }
+            
+            # === STEP 13: Store assistant message with metadata ===
+            await self.session_manager.add_message(session_id, "assistant", response, metadata)
+            
+            # === STEP 14: Track analytics (legacy - can be removed later) ===
+            self.kb_analytics.track_kb_usage(sources, query, best_confidence, session_id)
+            
+            logger.info(f"✅ Response generated (confidence: {best_confidence:.2f}, escalation: {requires_escalation}, time: {elapsed_ms:.0f}ms)")
+            
+            return {
+                "response": response,
+                "confidence": best_confidence,
+                "sources": sources,
+                "query_type": query_type,
+                "classification_confidence": classification_confidence,
+                "requires_escalation": requires_escalation,
+                "search_attempts": search_attempts,
+                "enhanced_query": structured_query.enhanced,
+                "query_metadata": {
+                    "category": structured_query.category,
+                    "intent": structured_query.user_intent,
+                    "tags": structured_query.tags
+                }
+            }
+            
         except Exception as e:
-            logger.error(f"Error processing query: {e}", exc_info=True)
-            error_response = "I apologize, but I encountered an error while processing your request. Please try again."
+            logger.error(f"❌ Error processing query: {e}", exc_info=True)
+            error_response = "I apologize, but I encountered an error. Please try again."
+            
+            # Build metadata for error case
+            elapsed_ms = (time.time() - start_time) * 1000
+            metadata = {
+                "query_type": "error",
+                "category": "system_error",
+                "confidence_score": 0.0,
+                "sources_found": 0,
+                "sources_used": [],
+                "response_time_ms": elapsed_ms,
+                "escalated": True,
+                "error": str(e)
+            }
+            
+            await self.session_manager.add_message(session_id, "assistant", error_response, metadata)
             
             return {
                 "response": error_response,
                 "confidence": 0.0,
                 "sources": [],
-                "error": str(e)
+                "error": str(e),
+                "requires_escalation": True
             }
-    
-    async def generate_response(self, query: str, contexts: List[str], conversation_context: str = "") -> str:
-        """Generate response using LLM with retrieved context"""
-        context_text = "\n\n".join(contexts[:3])  # Use top 3 contexts
+
+    async def _try_answer_from_context(
+        self, 
+        query: str, 
+        conversation_context: str, 
+        session_id: str
+    ) -> Optional[Dict]:
+        """Try to answer from conversation context if it's a follow-up"""
+        if not self._is_followup_query(query, conversation_context):
+            return None
         
-        prompt = RESPONSE_GENERATION_PROMPT.format(
-            conversation_context=conversation_context,
-            context=context_text,
-            query=query
+        logger.info("📝 Detected follow-up query, attempting to answer from context")
+        
+        try:
+            response = await self.response_generator.generate_response(
+                query, 
+                [conversation_context],  # Use context as source
+                conversation_context
+            )
+            
+            self.session_manager.add_message(session_id, "assistant", response)
+            
+            return {
+                "response": response,
+                "confidence": 0.9,
+                "sources": [{"title": "Conversation Context", "confidence": 0.9}],
+                "query_type": "followup",
+                "from_context": True
+            }
+        except Exception as e:
+            logger.error(f"Error answering from context: {e}")
+            return None
+    
+    async def _search_with_fallback(
+        self,
+        query: str,
+        query_type: str,
+        user_type_filter: Optional[str]
+    ) -> tuple[List[Dict], List[str]]:
+        """
+        Search with fallback strategy
+        
+        Returns:
+            Tuple of (results, search_attempts)
+        """
+        search_attempts = []
+        cached_embeddings = None
+        
+        # Primary search with entry_type filter
+        search_attempts.append(f"primary:{query_type}")
+        results, cached_embeddings = await self.vector_search.search(
+            query=query,
+            entry_type=query_type,
+            user_type=user_type_filter,
+            k=settings.MAX_SEARCH_RESULTS
         )
         
-        messages = [
-            SystemMessage(content=SYSTEM_PROMPT),
-            HumanMessage(content=prompt)
-        ]
+        if results:
+            return results, search_attempts
         
-        response = await self.llm.ainvoke(messages)
-        return response.content
-    
-    async def generate_fallback_response(self, query: str) -> str:
-        """Generate response when no knowledge base results found"""
-        prompt = FALLBACK_PROMPT.format(query=query)
+        # Fallback 1: Remove entry_type filter
+        logger.info(f"No results for {query_type}, trying without entry_type filter")
+        search_attempts.append("fallback:no_filter")
+        results, _ = await self.vector_search.search(
+            query=query,
+            user_type=user_type_filter,
+            k=settings.MAX_SEARCH_RESULTS,
+            query_embeddings=cached_embeddings
+        )
         
-        messages = [
-            SystemMessage(content=SYSTEM_PROMPT),
-            HumanMessage(content=prompt)
-        ]
+        if results:
+            return results, search_attempts
         
-        response = await self.llm.ainvoke(messages)
-        return response.content
-
+        # Fallback 2: If howto, try error
+        if query_type == "howto":
+            logger.info("Trying error type as fallback for howto")
+            search_attempts.append("fallback:error")
+            results, _ = await self.vector_search.search(
+                query=query,
+                entry_type="error",
+                user_type=user_type_filter,
+                k=settings.MAX_SEARCH_RESULTS,
+                query_embeddings=cached_embeddings
+            )
+        
+        # Fallback 3: If definition contains "error", try error type
+        if query_type == "definition" and "error" in query.lower():
+            logger.info("Definition query contains 'error', trying error type")
+            search_attempts.append("fallback:error_detected")
+            results, _ = await self.vector_search.search(
+                query=query,
+                entry_type="error",
+                user_type=user_type_filter,
+                k=settings.MAX_SEARCH_RESULTS,
+                query_embeddings=cached_embeddings
+            )
+        
+        return results, search_attempts
     
     def _is_followup_query(self, query: str, conversation_context: str) -> bool:
-        """
-        Detect if query is a follow-up question based on context and query patterns
-        
-        Args:
-            query: Current user query
-            conversation_context: Previous conversation context
-            
-        Returns:
-            bool: True if this appears to be a follow-up question
-        """
+        """Detect if query is a follow-up question"""
         if not conversation_context.strip():
             return False
         
@@ -343,91 +360,25 @@ class Agent:
         
         # Follow-up indicators
         followup_patterns = [
-            # Confirmation questions
-            r'\bso\b.*\bonly\b',  # "so it only applies to..."
-            r'\bso\b.*\bjust\b',  # "so it just works for..."
-            r'\bthat\s+(means|is)\b',  # "that means..." / "that is..."
-            
-            # Short confirmations
-            r'^\s*(only|just|so)\b',  # Starts with "only", "just", "so"
-            r'\byes\b.*\?',  # "yes but what about...?"
-            r'\band\b.*\?',  # "and what about...?"
-            
-            # Clarification questions
-            r'\bwhat about\b',  # "what about..."
-            r'\bhow about\b',   # "how about..."
-            r'\bwhy\s+(only|not|just)\b',  # "why only...", "why not..."
+            r'\bso\b.*\bonly\b',
+            r'\bso\b.*\bjust\b',
+            r'\bthat\s+(means|is)\b',
+            r'^\s*(only|just|so)\b',
+            r'\byes\b.*\?',
+            r'\band\b.*\?',
+            r'\bwhat about\b',
+            r'\bhow about\b',
+            r'\bwhy\s+(only|not|just)\b',
         ]
         
-        # Check patterns
         import re
         for pattern in followup_patterns:
             if re.search(pattern, query_lower):
                 return True
         
-        # Short queries (≤6 words) with pronouns are likely follow-ups
+        # Short queries with pronouns
         if (len(query_words) <= 6 and 
             any(pronoun in query_words for pronoun in ['it', 'that', 'this', 'they'])):
             return True
         
-        # Questions without subject context (assuming continuation)
-        if (len(query_words) <= 5 and 
-            query_lower.endswith('?') and
-            not any(word in query_lower for word in ['what', 'how', 'when', 'where', 'who'])):
-            return True
-        
         return False
-
-    
-    async def _try_answer_from_context(self, query: str, conversation_context: str, session_id: str) -> Optional[Dict]:
-        """
-        Try to answer query using only conversation context
-        
-        Args:
-            query: User's query
-            conversation_context: Previous conversation context
-            session_id: Session identifier
-            
-        Returns:
-            Optional[Dict]: Response dict if context can answer, None otherwise
-        """
-        try:
-            # Ask LLM if context contains the answer
-            check_prompt = f"""Previous conversation:
-{conversation_context}
-
-New question: "{query}"
-
-Can you answer this question completely using only the previous conversation context?
-
-If YES: Provide a direct answer (1 sentence max)
-If NO: Reply with exactly "INSUFFICIENT_CONTEXT"
-
-Answer:"""
-
-            messages = [HumanMessage(content=check_prompt)]
-            response = await self.llm.ainvoke(messages)
-            answer = response.content.strip()
-            
-            if answer == "INSUFFICIENT_CONTEXT" or "insufficient" in answer.lower():
-                logger.info(f"💭 Context insufficient for query: {query}")
-                return None
-            
-            # Context has the answer!
-            logger.info(f"✅ Answered from context: '{query}' → Context-based response")
-            
-            # Store response in cache
-            self.session_manager.add_message(session_id, "assistant", answer)
-            
-            return {
-                "response": answer,
-                "confidence": 0.95,  # High confidence for context-based answers
-                "sources": [{"title": "Previous Conversation", "section": "context", "confidence": 0.95}],
-                "query_type": "context_answered", 
-                "search_type": "context_only",
-                "requires_escalation": False
-            }
-            
-        except Exception as e:
-            logger.error(f"Error checking context: {e}")
-            return None

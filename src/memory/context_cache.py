@@ -263,3 +263,124 @@ class RedisContextCache:
                 "error": str(e),
                 "fallback_sessions": len(self.memory_fallback)
             }
+
+    # === ROLLING SUMMARY METHODS (NEW) ===
+    
+    def store_rolling_summary(self, session_id: str, summary_data: Dict) -> bool:
+        """
+        Store rolling summary in Redis
+        
+        Args:
+            session_id: Session identifier
+            summary_data: Summary dict from ChatSummarizer
+            
+        Returns:
+            bool: Success status
+        """
+        try:
+            if self.redis_client:
+                key = f"session:{session_id}:summary"
+                self.redis_client.set(
+                    key,
+                    json.dumps(summary_data),
+                    ex=self.session_ttl
+                )
+                logger.debug(f"Stored rolling summary for session: {session_id}")
+                return True
+            else:
+                # Fallback to memory
+                if session_id not in self.memory_fallback:
+                    self.memory_fallback[session_id] = {}
+                self.memory_fallback[session_id]["summary"] = summary_data
+                return True
+                
+        except Exception as e:
+            logger.error(f"Failed to store rolling summary: {e}")
+            return False
+    
+    def get_rolling_summary(self, session_id: str) -> Optional[Dict]:
+        """
+        Get rolling summary from Redis
+        
+        Args:
+            session_id: Session identifier
+            
+        Returns:
+            Summary dict or None
+        """
+        try:
+            if self.redis_client:
+                key = f"session:{session_id}:summary"
+                data = self.redis_client.get(key)
+                if data:
+                    return json.loads(data)
+            else:
+                # Try memory fallback
+                if session_id in self.memory_fallback:
+                    return self.memory_fallback[session_id].get("summary")
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Failed to get rolling summary: {e}")
+            return None
+    
+    def get_context_with_summary(self, session_id: str, max_messages: int = 5) -> Dict:
+        """
+        Get recent messages + rolling summary for LLM context
+        
+        Args:
+            session_id: Session identifier
+            max_messages: Number of recent messages to include
+            
+        Returns:
+            {
+                "messages": [...],
+                "summary": {...},
+                "has_summary": bool
+            }
+        """
+        messages = self.get_messages(session_id, limit=max_messages)
+        summary = self.get_rolling_summary(session_id)
+        
+        return {
+            "messages": messages,
+            "summary": summary,
+            "has_summary": summary is not None,
+            "message_count": len(messages)
+        }
+
+    def get_health(self) -> Dict:
+        """
+        Check Redis health and return status
+        
+        Returns:
+            Dict: Health status information
+        """
+        try:
+            if self.redis_client:
+                self.redis_client.ping()
+                info = self.redis_client.info()
+                return {
+                    "status": "healthy",
+                    "redis_connected": True,
+                    "memory_usage": info.get("used_memory_human", "unknown"),
+                    "connected_clients": info.get("connected_clients", 0),
+                    "uptime_seconds": info.get("uptime_in_seconds", 0),
+                    "fallback_sessions": len(self.memory_fallback)
+                }
+            else:
+                return {
+                    "status": "degraded",
+                    "redis_connected": False,
+                    "message": "Using in-memory fallback",
+                    "fallback_sessions": len(self.memory_fallback)
+                }
+                
+        except Exception as e:
+            return {
+                "status": "unhealthy", 
+                "redis_connected": False,
+                "error": str(e),
+                "fallback_sessions": len(self.memory_fallback)
+            }

@@ -17,29 +17,44 @@ session_manager = SessionManager()
 
 class SessionEndRequest(BaseModel):
     session_id: str
+    agent_id: str  # REQUIRED for analytics
     reason: Optional[str] = "user_ended"
 
 @router.post("/end")
 async def end_session(request: SessionEndRequest):
-    """Explicitly end a session"""
+    """
+    End session and write all analytics to Firebase
+    
+    This should be called when:
+    - User closes browser (frontend detects)
+    - 30 minutes of inactivity (frontend timeout)
+    - User explicitly ends chat
+    """
     try:
-        # End the session in Firebase
-        success = session_manager.firebase_sessions.end_session(
-            request.session_id, 
-            request.reason
+        if not request.agent_id:
+            raise HTTPException(status_code=400, detail="agent_id is required")
+        
+        # End session with analytics batch write
+        success = await session_manager.end_session_with_analytics(
+            session_id=request.session_id,
+            agent_id=request.agent_id,
+            reason=request.reason
         )
         
         if success:
+            logger.info(f"✅ Session {request.session_id} ended for agent {request.agent_id}")
             return {
+                "success": True,
                 "message": f"Session {request.session_id} ended successfully",
                 "reason": request.reason,
                 "status": "ended"
             }
         else:
+            logger.warning(f"⚠️ Failed to end session {request.session_id}")
             raise HTTPException(status_code=400, detail="Failed to end session")
             
     except Exception as e:
-        logger.error(f"Error ending session {request.session_id}: {e}")
+        logger.error(f"❌ Error ending session {request.session_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{session_id}/should-end")

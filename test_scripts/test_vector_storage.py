@@ -7,7 +7,7 @@ import os
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.database.connection import AstraDBConnection
+from src.database.astra_client import AstraDBConnection
 from src.config.settings import settings
 import asyncio
 

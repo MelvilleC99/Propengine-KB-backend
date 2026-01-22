@@ -2,7 +2,7 @@
 
 import pytest
 import asyncio
-from src.database.connection import AstraDBConnection
+from src.database.astra_client import AstraDBConnection
 
 @pytest.mark.asyncio
 async def test_database_connection():

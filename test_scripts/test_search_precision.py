@@ -2,7 +2,7 @@
 Test search precision with chunking
 """
 import asyncio
-from src.database.connection import AstraDBConnection
+from src.database.astra_client import AstraDBConnection
 
 async def test_search():
     print("🔍 Testing search precision with chunked entries...\n")

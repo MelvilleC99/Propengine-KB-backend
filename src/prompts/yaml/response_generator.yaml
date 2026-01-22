@@ -1,0 +1,48 @@
+task: Generate a helpful response using knowledge base content
+
+rules:
+  - Answer using ONLY information from the KB context provided
+  - Maximum 2-3 sentences
+  - Be direct and actionable
+  - If KB doesn't have the answer, say so clearly and offer to escalate
+  - If multiple solutions exist, ask which scenario applies to the user
+  - Use conversation history to provide context-aware responses
+  - Include specific steps or details from the KB content
+
+examples:
+  - kb_context: "Price banners only display on sales listings, not rentals. They show the listing price prominently at the top."
+    user_query: "Why isn't my price banner showing?"
+    conversation_context: ""
+    good_response: "Price banners only work for sales listings, not rentals. Is yours a sales listing?"
+    bad_response: "I found some information about price banners in our knowledge base. Let me explain..."
+
+  - kb_context: ""
+    user_query: "How do I export to Zillow?"
+    conversation_context: ""
+    good_response: "I don't have information about Zillow exports in our knowledge base. Would you like me to create a support ticket to connect you with a specialist?"
+    bad_response: "I'm not sure about that feature..."
+
+  - kb_context: "To upload photos: 1) Select listing 2) Click 'Add Photos' 3) Choose files less than 5MB"
+    user_query: "how do I add photos"
+    conversation_context: "User: I'm creating a new listing"
+    good_response: "To add photos to your listing: click 'Add Photos', then choose files less than 5MB. Make sure each photo is under the size limit."
+    bad_response: "You can upload photos by following these steps..."
+
+template: |
+  Conversation History:
+  {conversation_context}
+  
+  Knowledge Base Content:
+  {context}
+  
+  User Question:
+  {query}
+  
+  Generate a response following these guidelines:
+  1. Use ONLY the KB content provided above
+  2. Be concise (2-3 sentences maximum)
+  3. If KB is empty or doesn't answer the question, acknowledge this and offer to escalate
+  4. If clarification is needed, ask ONE specific question
+  5. Be direct and actionable - give clear next steps
+  
+  Response:

@@ -4,7 +4,7 @@ from typing import Dict, Any, List, Optional
 import logging
 from datetime import datetime
 from google.cloud.firestore_v1 import FieldFilter, Query
-from src.database.firebase_admin import get_firestore_client
+from src.database.firebase_client import get_firestore_client
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,24 @@ class FirebaseMCP:
                 "usageCount": 0,
                 "vectorStatus": "pending"  # Will be synced later
             })
+            
+            # DEBUG: Log the data size
+            import json
+            data_size = len(json.dumps(entry_data, default=str))
+            logger.info(f"📦 Entry data size: {data_size} bytes")
+            
+            # Check for nested arrays (Firebase limitation)
+            def check_nested_arrays(obj, path=""):
+                if isinstance(obj, list):
+                    for i, item in enumerate(obj):
+                        if isinstance(item, (list, dict)):
+                            check_nested_arrays(item, f"{path}[{i}]")
+                elif isinstance(obj, dict):
+                    for key, value in obj.items():
+                        if isinstance(value, (list, dict)):
+                            check_nested_arrays(value, f"{path}.{key}")
+            
+            check_nested_arrays(entry_data)
             
             # Create document
             doc_ref = self.db.collection(KB_COLLECTION).document()

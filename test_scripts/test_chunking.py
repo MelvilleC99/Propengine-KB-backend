@@ -2,7 +2,7 @@
 Test script to check chunking in AstraDB
 """
 import asyncio
-from src.database.connection import AstraDBConnection
+from src.database.astra_client import AstraDBConnection
 
 async def test_chunks():
     print("🔍 Testing chunks in AstraDB...\n")

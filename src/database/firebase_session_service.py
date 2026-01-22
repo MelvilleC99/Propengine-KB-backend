@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from google.cloud import firestore
 from google.cloud.firestore_v1 import SERVER_TIMESTAMP, Increment
-from src.database.firebase_config import firebase_config
+from src.database.firebase_client import get_firestore_client
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +14,7 @@ class FirebaseSessionManager:
     """Manages user sessions with Firebase persistence"""
     
     def __init__(self):
-        self.db = firebase_config.get_db()
+        self.db = get_firestore_client()
         self.sessions_collection = "kb_sessions"
         self.messages_collection = "kb_messages"
         self.session_timeout = timedelta(hours=2)
@@ -267,3 +267,43 @@ class FirebaseSessionManager:
         except Exception as e:
             logger.error(f"❌ Failed to get active sessions count: {e}")
             return 0
+
+    def end_session_with_summary(self, session_id: str, final_summary: Dict, reason: str = "completed") -> bool:
+        """
+        End session and store final summary for analytics
+        
+        Args:
+            session_id: Session to end
+            final_summary: Summary dict from ChatSummarizer
+            reason: End reason
+            
+        Returns:
+            bool: Success status
+        """
+        try:
+            if not self.db:
+                return False
+            
+            # Update session with final summary and status
+            self.db.collection(self.sessions_collection).document(session_id).update({
+                "status": "ended",
+                "ended_at": SERVER_TIMESTAMP,
+                "end_reason": reason,
+                "last_activity": SERVER_TIMESTAMP,
+                # Final summary fields
+                "final_summary": final_summary.get("summary", ""),
+                "topics_discussed": final_summary.get("topics", []),
+                "resolution_status": final_summary.get("resolution_status", "unknown"),
+                "user_satisfaction": final_summary.get("user_satisfaction", "unknown"),
+                "key_issues": final_summary.get("key_issues", ""),
+                "outcome": final_summary.get("outcome", ""),
+                "session_duration_seconds": final_summary.get("session_duration"),
+                "total_messages": final_summary.get("message_count", 0)
+            })
+            
+            logger.info(f"✅ Session {session_id} ended with final summary: {final_summary.get('resolution_status')}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to end session with summary {session_id}: {e}")
+            return False
