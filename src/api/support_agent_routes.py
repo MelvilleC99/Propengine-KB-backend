@@ -88,7 +88,7 @@ async def support_agent(request: SupportAgentRequest, http_request: Request):
         )
         
         if should_log:
-            session_manager.add_message(
+            await session_manager.add_message(
                 session_id=session_id,
                 role="user",
                 content=request.message,
@@ -100,7 +100,7 @@ async def support_agent(request: SupportAgentRequest, http_request: Request):
                 }
             )
             
-            session_manager.add_message(
+            await session_manager.add_message(
                 session_id=session_id,
                 role="assistant",
                 content=result["response"],

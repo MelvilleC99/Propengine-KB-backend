@@ -82,7 +82,7 @@ class FirebaseSessionManager:
             # Check if session expired
             if self._is_session_expired(session_data):
                 logger.info(f"Session {session_id} expired, cleaning up")
-                self._expire_session(session_id)
+                self.end_session(session_id, reason="timeout")
                 return None
             
             # Update last activity

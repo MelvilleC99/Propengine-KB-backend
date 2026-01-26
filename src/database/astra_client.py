@@ -74,10 +74,10 @@ class AstraDBClient:
             vector_store = self.get_vector_store()
             # Simple test - try to perform a basic operation
             test_results = await vector_store.asimilarity_search("test", k=1)
-            results["property_engine"] = "connected"
+            results["property_engine"] = True
             logger.info("✓ AstraDB connection test successful")
         except Exception as e:
-            results["property_engine"] = f"error: {str(e)}"
+            results["property_engine"] = False
             logger.error(f"✗ AstraDB connection test failed: {e}")
         
         return results

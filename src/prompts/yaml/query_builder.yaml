@@ -13,20 +13,28 @@ instructions: |
 
 schema:
   enhanced_query: string (optimized search terms, max 20 words)
-  category: string (listings | leads | rentals | user_management | general)
+  category: string (leads | sales | rentals | listings | contacts | referrals | media | user_management | general)
   subcategory: string (specific area if applicable, or null)
-  tags: array of strings (relevant searchable tags)
+  tags: array of strings (relevant searchable tags, lowercase with hyphens)
   user_intent: string (troubleshooting | learning | how_to | definition)
   search_keywords: array of strings (key terms for vector search)
+  
+notes: |
+  - category MUST be one of these EXACT values: leads, sales, rentals, listings, contacts, referrals, media, user_management, general
+  - use "media" for photo/image/video related queries
+  - use "listings" for property listing management
+  - use "leads" for lead generation and management
+  - tags should be lowercase, simple keywords
+  - enhanced_query should focus on semantic meaning, not exact phrasing
 
 examples:
   - input: how do I upload photos to a listing?
     output: |
       {
         "enhanced_query": "listing photo upload process steps instructions guide",
-        "category": "listings",
+        "category": "media",
         "subcategory": "photos",
-        "tags": ["upload", "photos", "media", "images"],
+        "tags": ["upload", "photos", "listings", "images"],
         "user_intent": "how_to",
         "search_keywords": ["upload", "photos", "listing", "images", "media"]
       }
@@ -62,6 +70,17 @@ examples:
         "tags": ["leads", "visibility", "display", "portal"],
         "user_intent": "troubleshooting",
         "search_keywords": ["leads", "not showing", "portal", "display", "missing"]
+      }
+  
+  - input: how to manage rental applications?
+    output: |
+      {
+        "enhanced_query": "rental application management process workflow steps",
+        "category": "rentals",
+        "subcategory": "applications",
+        "tags": ["rentals", "applications", "management", "workflow"],
+        "user_intent": "how_to",
+        "search_keywords": ["rental", "application", "manage", "workflow", "process"]
       }
 
 template: |

@@ -19,7 +19,7 @@ import json
 # Add project root to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from src.memory.context_cache import RedisContextCache
+from src.memory.redis_message_store import RedisContextCache
 from src.memory.session_manager import SessionManager
 from src.utils.chat_summary import chat_summarizer
 

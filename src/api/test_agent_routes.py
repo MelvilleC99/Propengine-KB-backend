@@ -34,9 +34,17 @@ class TestAgentResponse(BaseModel):
     query_type: Optional[str] = Field(None, description="Detected query type")
     timestamp: str = Field(..., description="Response timestamp")
     requires_escalation: bool = Field(False, description="Whether the query requires escalation to human agent")
+    
     # Debug fields (test agent shows EVERYTHING)
     classification_confidence: Optional[float] = Field(None, description="Pattern matching confidence")
     search_attempts: Optional[List[str]] = Field(default_factory=list, description="Search attempts made")
+    
+    # Query analytics fields
+    enhanced_query: Optional[str] = Field(None, description="LLM-enhanced query")
+    query_metadata: Optional[Dict] = Field(None, description="Query category, intent, and tags")
+    
+    # Full debug metrics
+    debug_metrics: Optional[Dict] = Field(None, description="Complete query execution metrics")
 
 
 @router.post("/", response_model=TestAgentResponse)
@@ -73,7 +81,7 @@ async def test_agent(request: TestAgentRequest, http_request: Request):
         )
         
         # Log ALL interactions for test agent (helps with debugging)
-        session_manager.add_message(
+        await session_manager.add_message(
             session_id=session_id,
             role="user",
             content=request.message,
@@ -85,7 +93,7 @@ async def test_agent(request: TestAgentRequest, http_request: Request):
             }
         )
         
-        session_manager.add_message(
+        await session_manager.add_message(
             session_id=session_id,
             role="assistant",
             content=result["response"],
@@ -120,7 +128,12 @@ async def test_agent(request: TestAgentRequest, http_request: Request):
             timestamp=datetime.now().isoformat(),
             requires_escalation=result.get("requires_escalation", False),
             classification_confidence=result.get("classification_confidence"),
-            search_attempts=result.get("search_attempts", [])
+            search_attempts=result.get("search_attempts", []),
+            # Query analytics
+            enhanced_query=result.get("enhanced_query"),
+            query_metadata=result.get("query_metadata"),
+            # Full debug metrics
+            debug_metrics=result.get("debug_metrics")
         )
         
     except Exception as e:

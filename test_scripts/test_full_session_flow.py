@@ -18,7 +18,7 @@ import time
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.memory.session_manager import SessionManager
-from src.memory.context_cache import RedisContextCache
+from src.memory.redis_message_store import RedisContextCache
 from src.database.firebase_client import initialize_firebase
 
 

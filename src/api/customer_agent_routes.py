@@ -70,7 +70,7 @@ async def customer_agent(request: CustomerAgentRequest, http_request: Request):
         if result.get("requires_escalation", False):
             logger.warning(f"⚠️ Customer Agent - Escalation needed for query: {request.message[:50]}")
             
-            session_manager.add_message(
+            await session_manager.add_message(
                 session_id=session_id,
                 role="user",
                 content=request.message,
@@ -81,7 +81,7 @@ async def customer_agent(request: CustomerAgentRequest, http_request: Request):
                 }
             )
             
-            session_manager.add_message(
+            await session_manager.add_message(
                 session_id=session_id,
                 role="assistant",
                 content=result["response"],

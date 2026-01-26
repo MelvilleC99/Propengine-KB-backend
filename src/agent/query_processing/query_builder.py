@@ -87,11 +87,23 @@ class QueryBuilder:
             # Parse JSON response
             response_text = response.content.strip()
             
+            # Clean up response text
+            response_text = response_text.strip()
+            
             # Remove markdown formatting if present
             if response_text.startswith("```json"):
                 response_text = response_text.replace("```json", "").replace("```", "").strip()
             elif response_text.startswith("```"):
                 response_text = response_text.replace("```", "").strip()
+            
+            # Remove any leading/trailing whitespace and newlines
+            response_text = response_text.strip()
+            
+            # Extract JSON object by finding first { and last }
+            first_brace = response_text.find('{')
+            last_brace = response_text.rfind('}')
+            if first_brace != -1 and last_brace != -1:
+                response_text = response_text[first_brace:last_brace+1]
             
             structured_data = json.loads(response_text)
             

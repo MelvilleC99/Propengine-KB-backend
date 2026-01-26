@@ -15,6 +15,7 @@ from src.agent.classification import QueryClassifier
 from src.agent.query_processing import QueryBuilder, StructuredQuery
 from src.agent.context import ContextBuilder
 from src.agent.response import ResponseGenerator
+from src.admin.query_metrics import QueryMetricsCollector
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,9 @@ class Agent:
         # Classification & Query Building
         self.classifier = QueryClassifier()
         self.query_builder = QueryBuilder()
+        
+        # Metrics Collection
+        self.metrics_collector = QueryMetricsCollector()
         
         # Search & Ranking
         self.vector_search = VectorSearch()
@@ -76,6 +80,9 @@ class Agent:
         # Start timing for analytics
         start_time = time.time()
         
+        # Start metrics collection
+        self.metrics_collector.start_query(query)
+        
         try:
             # === STEP 1: Store user message ===
             await self.session_manager.add_message(session_id, "user", query)
@@ -95,6 +102,9 @@ class Agent:
             # === STEP 3: Classify query ===
             query_type, classification_confidence = self.classifier.classify(query)
             logger.info(f"📋 Query classified as '{query_type}' (confidence: {classification_confidence})")
+            
+            # Record classification
+            self.metrics_collector.record_classification(query_type, classification_confidence)
             
             # === STEP 4: Handle greetings (no search needed) ===
             if query_type == "greeting":
@@ -134,6 +144,14 @@ class Agent:
                 f"category={structured_query.category}"
             )
             
+            # Record query enhancement
+            self.metrics_collector.record_query_enhancement(
+                enhanced_query=structured_query.enhanced,
+                category=structured_query.category,
+                tags=structured_query.tags,
+                intent=structured_query.user_intent
+            )
+            
             # === STEP 6: Search vector database ===
             results, search_attempts = await self._search_with_fallback(
                 structured_query.enhanced,
@@ -144,10 +162,23 @@ class Agent:
             # === STEP 7: No results - generate fallback ===
             if not results:
                 logger.warning(f"❌ No results found for query: {query}")
+                
+                # Record no results
+                self.metrics_collector.record_results(
+                    sources_found=0,
+                    sources_used=0,
+                    best_confidence=0.0,
+                    retrieved_chunks=[]
+                )
+                
                 fallback_response = await self.response_generator.generate_fallback_response(query)
                 
                 # Build metadata for fallback
                 elapsed_ms = (time.time() - start_time) * 1000
+                
+                # Finalize metrics
+                debug_metrics = self.metrics_collector.finalize_metrics()
+                
                 metadata = {
                     "query_type": query_type,
                     "category": structured_query.category,
@@ -167,17 +198,41 @@ class Agent:
                     "query_type": query_type,
                     "classification_confidence": classification_confidence,
                     "requires_escalation": True,
-                    "search_attempts": search_attempts
+                    "search_attempts": search_attempts,
+                    "enhanced_query": structured_query.enhanced,
+                    "query_metadata": {
+                        "category": structured_query.category,
+                        "intent": structured_query.user_intent,
+                        "tags": structured_query.tags
+                    },
+                    "debug_metrics": debug_metrics
                 }
             
             # === STEP 8: Re-rank results ===
+            rerank_start = time.time()
             results = self.reranker.rerank_results(results, structured_query.enhanced)
+            rerank_time_ms = (time.time() - rerank_start) * 1000
             logger.info(f"📊 Re-ranked {len(results)} results")
+            
+            # Record reranking
+            self.metrics_collector.record_reranking(rerank_time_ms)
             
             # === STEP 9: Build context from results ===
             contexts = self.context_builder.extract_contexts(results, query)
             sources = self.context_builder.build_sources(results)
             best_confidence = self.context_builder.calculate_best_confidence(results)
+            
+            # Calculate average score
+            scores = [r.get("similarity_score", 0.0) for r in results]
+            avg_score = sum(scores) / len(scores) if scores else 0.0
+            
+            # Record results
+            self.metrics_collector.record_results(
+                sources_found=len(results),
+                sources_used=len(sources),
+                best_confidence=best_confidence,
+                retrieved_chunks=results
+            )
             
             # === STEP 10: Generate response ===
             response = await self.response_generator.generate_response(
@@ -186,6 +241,9 @@ class Agent:
             
             # === STEP 11: Calculate timing ===
             elapsed_ms = (time.time() - start_time) * 1000
+            
+            # Finalize metrics
+            debug_metrics = self.metrics_collector.finalize_metrics()
             
             # === STEP 12: Build metadata for analytics ===
             requires_escalation = best_confidence < 0.7
@@ -222,7 +280,8 @@ class Agent:
                     "category": structured_query.category,
                     "intent": structured_query.user_intent,
                     "tags": structured_query.tags
-                }
+                },
+                "debug_metrics": debug_metrics
             }
             
         except Exception as e:
@@ -301,12 +360,24 @@ class Agent:
         
         # Primary search with entry_type filter
         search_attempts.append(f"primary:{query_type}")
-        results, cached_embeddings = await self.vector_search.search(
+        results, cached_embeddings, search_stats = await self.vector_search.search(
             query=query,
             entry_type=query_type,
             user_type=user_type_filter,
             k=settings.MAX_SEARCH_RESULTS
         )
+        
+        # Record search execution
+        if search_stats:
+            self.metrics_collector.record_search_execution(
+                filters=search_stats.get("filters_applied", {}),
+                docs_scanned=search_stats.get("documents_requested", 0),
+                docs_matched=search_stats.get("documents_matched", 0),
+                docs_returned=search_stats.get("documents_returned", 0),
+                similarity_threshold=search_stats.get("similarity_threshold", 0.7),
+                embedding_time_ms=search_stats.get("embedding_time_ms", 0.0),
+                search_time_ms=search_stats.get("search_time_ms", 0.0)
+            )
         
         if results:
             return results, search_attempts
@@ -314,7 +385,7 @@ class Agent:
         # Fallback 1: Remove entry_type filter
         logger.info(f"No results for {query_type}, trying without entry_type filter")
         search_attempts.append("fallback:no_filter")
-        results, _ = await self.vector_search.search(
+        results, _, search_stats = await self.vector_search.search(
             query=query,
             user_type=user_type_filter,
             k=settings.MAX_SEARCH_RESULTS,
@@ -328,7 +399,7 @@ class Agent:
         if query_type == "howto":
             logger.info("Trying error type as fallback for howto")
             search_attempts.append("fallback:error")
-            results, _ = await self.vector_search.search(
+            results, _, search_stats = await self.vector_search.search(
                 query=query,
                 entry_type="error",
                 user_type=user_type_filter,
@@ -340,7 +411,7 @@ class Agent:
         if query_type == "definition" and "error" in query.lower():
             logger.info("Definition query contains 'error', trying error type")
             search_attempts.append("fallback:error_detected")
-            results, _ = await self.vector_search.search(
+            results, _, search_stats = await self.vector_search.search(
                 query=query,
                 entry_type="error",
                 user_type=user_type_filter,

@@ -5,6 +5,7 @@ import logging
 from src.mcp.firebase.server import FirebaseMCP
 from src.mcp.astradb.server import AstraDBMCP
 from src.mcp.vector_sync.chunking import chunk_entry, Chunk
+from src.mcp.vector_sync.document_chunking import chunk_document, chunk_large_document, is_document_entry
 
 logger = logging.getLogger(__name__)
 
@@ -57,9 +58,20 @@ class VectorSyncMCP:
             entry = firebase_result["entry"]
             logger.info(f"📄 Retrieved entry from Firebase: {entry.get('title', 'Untitled')}")
             
-            # 2. Chunk the entry
-            chunks = chunk_entry(entry)
-            logger.info(f"🧩 Created {len(chunks)} chunks for entry type: {entry.get('type')}")
+            # 2. Chunk the entry - use appropriate chunker based on source
+            if is_document_entry(entry):
+                # Document upload - use document chunking
+                word_count = entry.get("metadata", {}).get("word_count", 0)
+                if word_count > 3000:  # Large document threshold
+                    chunks = chunk_large_document(entry)
+                    logger.info(f"🧩 Created {len(chunks)} chunks for large document")
+                else:
+                    chunks = chunk_document(entry)
+                    logger.info(f"🧩 Created {len(chunks)} chunks for document")
+            else:
+                # Template-based entry - use original chunking
+                chunks = chunk_entry(entry)
+                logger.info(f"🧩 Created {len(chunks)} chunks for entry type: {entry.get('type')}")
             
             if not chunks:
                 return {
