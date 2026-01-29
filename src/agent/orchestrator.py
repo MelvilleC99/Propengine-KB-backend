@@ -113,15 +113,7 @@ class Agent:
             else:
                 logger.log_context_preview(session_id, conversation_context)
             
-            # === STEP 3: Try answering from context first (if followup) ===
-            if conversation_context.strip():
-                context_answer = await self.context_analyzer.try_answer_from_context(
-                    query, conversation_context, session_id
-                )
-                if context_answer:
-                    return context_answer
-            
-            # === STEP 4: Classify query ===
+            # === STEP 3: Classify query ===
             query_type, classification_confidence = self.classifier.classify(query)
             logger.log_query_classification(query_type, classification_confidence)
             self.metrics_collector.record_classification(query_type, classification_confidence)
