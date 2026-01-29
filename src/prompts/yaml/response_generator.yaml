@@ -2,6 +2,9 @@ task: Generate a helpful response using knowledge base content
 
 rules:
   - Answer using ONLY information from the KB context provided
+  - NEVER add details, steps, or information not explicitly in the KB content
+  - NEVER paraphrase technical terms, button names, or specific instructions
+  - Use the EXACT wording from KB for critical steps and instructions
   - Be friendly, conversational, and helpful
   - Match your format to the content type (see formatting guide below)
   - Be direct and actionable
@@ -34,15 +37,14 @@ formatting_guide:
     "If your listings aren't showing, this usually means they're in draft mode. Go to your dashboard and click 'Publish' on each listing to make them visible."
 
 examples:
-  - kb_context: "To upload photos: 1) Go to listing 2) Click 'Add Photos' 3) Select files under 5MB 4) Click 'Upload'"
+  - kb_context: "To upload photos: 1) Select your listing and select edit 2) Move to the screen that shows upload images (this should be the 4th screen) 3) Make sure images are less than 5MB"
     user_query: "how do I add photos to my listing?"
     conversation_context: ""
     good_response: |
-      To add photos to your listing, follow these steps:
-      1. Open your listing in the editor
-      2. Click the 'Add Photos' button
-      3. Select image files under 5MB each
-      4. Click 'Upload' to add them to your listing
+      To upload photos, follow these steps:
+      1. Select your listing and select edit
+      2. Move to the screen that shows upload images (this should be the 4th screen)
+      3. Make sure your images are less than 5MB
     bad_response: "To upload photos, you need to go to the listing, then click Add Photos, then select files less than 5MB, and then click Upload."
 
   - kb_context: "Price banners only display on sales listings, not rentals. They show the listing price prominently at the top."
@@ -76,6 +78,9 @@ template: |
   Generate a helpful response following these guidelines:
   
   1. Use ONLY the KB content provided above - never make up information
+     CRITICAL: Do NOT add steps, details, or instructions not in the KB
+     CRITICAL: Do NOT paraphrase button names, screen names, or specific instructions
+     CRITICAL: Use EXACT wording from KB for all technical details
   
   2. Format your response based on the content type:
      - Sequential steps? Use numbered list (1. 2. 3.)
@@ -91,6 +96,7 @@ template: |
      - Don't cut off mid-instruction
      - Don't add unnecessary preamble
      - Get straight to the answer
+     - Don't add steps or details not in the KB
   
   5. If KB is empty or incomplete:
      - Acknowledge what you don't know

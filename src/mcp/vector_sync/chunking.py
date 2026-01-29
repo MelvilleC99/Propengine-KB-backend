@@ -290,7 +290,8 @@ def chunk_how_to(entry: Dict[str, Any]) -> List[Chunk]:
             logger.info(f"Using single chunk for how_to entry {entry_id} ({estimated_tokens:.0f} tokens)")
             
             # Add title as header if not already there
-            if not content.startswith(entry_title):
+            # Check for "How to:" prefix, not exact title match
+            if not content.startswith("How to:"):
                 content = f"How to: {entry_title}\n\n{content}"
             
             chunk = Chunk(
