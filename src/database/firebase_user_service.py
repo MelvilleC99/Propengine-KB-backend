@@ -66,7 +66,13 @@ class FirebaseUserService:
             logger.error(f"❌ Failed to create/update user {agent_id}: {e}")
             return False
     
-    async def update_user_activity(self, agent_id: str, num_queries: int, user_data: Optional[Dict] = None) -> bool:
+    async def update_user_activity(
+        self, 
+        agent_id: str, 
+        num_queries: int, 
+        user_data: Optional[Dict] = None,
+        total_cost: float = 0.0
+    ) -> bool:
         """
         Update user activity stats after session ends
         Creates user if doesn't exist
@@ -75,6 +81,7 @@ class FirebaseUserService:
             agent_id: Agent ID
             num_queries: Number of queries in the session
             user_data: Optional user info if creating new user
+            total_cost: Total cost for this session in USD
         """
         try:
             if not self.db:
@@ -98,6 +105,7 @@ class FirebaseUserService:
                     # Stats - start with this session's stats
                     "total_sessions": 1,
                     "total_queries": num_queries,
+                    "total_cost": total_cost,  # ← NEW: Cost tracking
                     "first_seen": SERVER_TIMESTAMP,
                     "last_seen": SERVER_TIMESTAMP,
                     
@@ -110,9 +118,10 @@ class FirebaseUserService:
                 user_ref.update({
                     "total_sessions": Increment(1),
                     "total_queries": Increment(num_queries),
+                    "total_cost": Increment(total_cost),  # ← NEW: Increment cost
                     "last_seen": SERVER_TIMESTAMP
                 })
-                logger.info(f"✅ Updated activity for {agent_id}: +1 session, +{num_queries} queries")
+                logger.info(f"✅ Updated activity for {agent_id}: +1 session, +{num_queries} queries, +${total_cost:.6f} cost")
             
             return True
             

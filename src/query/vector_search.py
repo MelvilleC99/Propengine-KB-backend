@@ -7,6 +7,7 @@ from langchain_astradb import AstraDBVectorStore
 from langchain.schema import Document
 from src.config.settings import settings
 from src.database.astra_client import astradb_connection
+from src.utils.token_tracker import token_tracker
 
 logger = logging.getLogger(__name__)
 
@@ -48,56 +49,66 @@ class VectorSearch:
             query: Search query string
             entry_type: Filter by entry type (definition, error, howto, etc.)
             user_type: Filter by user type (internal, external, both)
-            k: Number of results to return (will request k*3 to account for threshold filtering)
-            similarity_threshold: Minimum similarity score
-            additional_metadata_filter: Additional filters to apply
-        
+            k: Number of results to return
+            similarity_threshold: Minimum similarity score (0-1)
+            additional_metadata_filter: Additional metadata filters
+            query_embeddings: Optional cached embeddings to reuse
+            
         Returns:
             Tuple of (results, embeddings, search_stats)
-            - results: List of search results with metadata and similarity scores
-            - embeddings: Query embeddings (for caching)
-            - search_stats: Dict with documents_requested, documents_matched, documents_returned
         """
+        start_time = time.time()
+        
         try:
-            # Start timing
-            start_time = time.time()
-            
-            # Use the singleton vector store instead of creating new one
             vector_store = self.get_vector_store()
-            
-            # Get embeddings (either provided or generate once)
-            if query_embeddings is None:
-                embed_start = time.time()
-                embeddings_model = self.db_connection.get_embeddings()
-                query_embeddings = await embeddings_model.aembed_query(query)
-                embedding_time_ms = (time.time() - embed_start) * 1000
-                logger.info(f"Generated embeddings for query: {query[:50]}... ({embedding_time_ms:.0f}ms)")
-            else:
-                embedding_time_ms = 0
-                logger.info(f"Reusing cached embeddings for query: {query[:50]}...")
+            embeddings_model = self.db_connection.get_embeddings()
             
             # Build metadata filter
             metadata_filter = {}
             
-            # Filter by entry type if specified - normalize format to match DB
+            # Add entry type filter if specified
             if entry_type:
-                # Map classifier output to DB format (e.g., "howto" -> "how_to")
-                normalized_entry_type = self.ENTRY_TYPE_MAP.get(entry_type, entry_type)
-                metadata_filter["entryType"] = normalized_entry_type
-                logger.debug(f"Normalized entry_type: '{entry_type}' -> '{normalized_entry_type}'")
+                normalized_type = self.ENTRY_TYPE_MAP.get(entry_type.lower(), entry_type.lower())
+                metadata_filter["entryType"] = normalized_type
+                logger.info(f"Filtering by entry_type: {normalized_type}")
             
-            # Filter by user type if specified (internal, external, both)
-            if user_type:
-                metadata_filter["userType"] = user_type
+            # Add user type filter if specified
+            if user_type and user_type.lower() != "both":
+                metadata_filter["userType"] = user_type.lower()
+                logger.info(f"Filtering by user_type: {user_type}")
             
-            # Add any additional metadata filters
+            # Add any additional filters
             if additional_metadata_filter:
                 metadata_filter.update(additional_metadata_filter)
+                logger.info(f"Additional filters: {additional_metadata_filter}")
             
-            logger.info(f"Searching with metadata filter: {metadata_filter}")
+            # If no filters, set to None (AstraDB doesn't like empty dicts)
+            if not metadata_filter:
+                metadata_filter = None
+                
+            # Generate query embeddings if not provided (cache for reuse)
+            embedding_tokens = 0
+            if query_embeddings is None:
+                embedding_start = time.time()
+                # Use the embeddings model directly (not the vector store method)
+                query_embeddings = embeddings_model.embed_query(query)
+                embedding_time_ms = (time.time() - embedding_start) * 1000
+                
+                # Track embedding tokens (rough estimate: 1 token per 4 chars)
+                embedding_tokens = len(query) // 4
+                token_tracker.track_embedding_usage(
+                    tokens=embedding_tokens,
+                    model=settings.EMBEDDING_MODEL,
+                    session_id=None,  # Will be added by caller if needed
+                    operation="vector_search_embedding"
+                )
+                
+                logger.info(f"Generated embeddings in {embedding_time_ms:.0f}ms ({embedding_tokens} tokens)")
+            else:
+                embedding_time_ms = 0
+                logger.info("Using cached embeddings")
             
-            # REQUEST MORE DOCS to account for similarity threshold filtering
-            # If we want K final results after threshold, request K*3 from DB
+            # Request more docs than needed for filtering
             # This ensures we get enough results even after filtering
             k_requested = k * 3
             
@@ -136,7 +147,28 @@ class VectorSearch:
             # Process results
             results = []
             for doc, score in filtered_docs:
+                # Extract entry_id (chunk ID) and parent_entry_id (Firebase KB entry ID)
+                entry_id = None
+                parent_entry_id = None
+                
+                if hasattr(doc, 'metadata') and doc.metadata:
+                    # Chunk ID from AstraDB
+                    entry_id = doc.metadata.get('_id') or doc.metadata.get('id')
+                    
+                    # Parent entry ID (Firebase KB entry ID)
+                    parent_entry_id = doc.metadata.get('parent_entry_id')
+                
+                if not entry_id and hasattr(doc, 'id'):
+                    entry_id = doc.id
+                
+                # DEBUG: Log what we're finding
+                logger.debug(f"Document extraction: entry_id={entry_id}, parent_entry_id={parent_entry_id}")
+                if not parent_entry_id:
+                    logger.warning(f"⚠️ No parent_entry_id found! This chunk won't link to Firebase KB entry. Metadata keys: {list(doc.metadata.keys()) if hasattr(doc, 'metadata') and doc.metadata else 'None'}")
+                
                 result = {
+                    "entry_id": entry_id,  # AstraDB chunk ID
+                    "parent_entry_id": parent_entry_id,  # ← ADDED: Firebase KB entry ID
                     "content": self.extract_content(doc),
                     "metadata": doc.metadata if hasattr(doc, 'metadata') else {},
                     "entry_type": doc.metadata.get("entryType", "unknown") if hasattr(doc, 'metadata') else "unknown",
@@ -181,11 +213,3 @@ class VectorSearch:
         
         logger.warning("Could not extract content from document")
         return ""
-    
-    def clean_query(self, query: str) -> str:
-        """Clean and optimize query for vector search"""
-        # Remove common stop words that don't help with search
-        stop_words = {'the', 'a', 'an', 'is', 'are', 'was', 'were', 'what', 'how', 'why', 'when', 'where'}
-        words = query.lower().split()
-        cleaned = ' '.join([w for w in words if w not in stop_words])
-        return cleaned if cleaned else query

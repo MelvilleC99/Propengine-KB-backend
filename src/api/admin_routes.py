@@ -5,7 +5,8 @@ from typing import Optional, List, Dict
 from datetime import datetime
 import logging
 from src.memory.session_manager import SessionManager
-from src.memory.kb_analytics import KBAnalyticsTracker
+from src.memory.kb_analytics import KBStatsTracker
+from src.database.firebase_client import get_firestore_client
 
 logger = logging.getLogger(__name__)
 
@@ -14,8 +15,8 @@ router = APIRouter()
 # Initialize session manager
 session_manager = SessionManager()
 
-# Initialize KB analytics tracker
-kb_analytics = KBAnalyticsTracker()
+# Initialize KB stats tracker
+kb_stats = KBStatsTracker()
 
 @router.get("/stats")
 async def get_stats():
@@ -101,10 +102,6 @@ async def get_all_messages(limit: int = 100):
     # Sort by timestamp and limit
     all_messages.sort(key=lambda x: x["timestamp"], reverse=True)
     return all_messages[:limit]
-    
-    # Sort by timestamp and return most recent
-    all_messages.sort(key=lambda x: x["timestamp"], reverse=True)
-    return all_messages[:limit]
 
 @router.post("/escalate/{session_id}")
 async def escalate_session(session_id: str, reason: Optional[str] = None):
@@ -127,7 +124,7 @@ async def escalate_session(session_id: str, reason: Optional[str] = None):
 async def get_popular_kb_entries(limit: int = 10, entry_type: Optional[str] = None):
     """Get most popular KB entries by usage count"""
     try:
-        popular_entries = kb_analytics.get_popular_entries(limit, entry_type)
+        popular_entries = kb_stats.get_popular_entries(limit, entry_type)
         return {
             "popular_entries": popular_entries,
             "count": len(popular_entries),
@@ -141,7 +138,7 @@ async def get_popular_kb_entries(limit: int = 10, entry_type: Optional[str] = No
 async def get_kb_usage_summary():
     """Get overall KB usage summary statistics"""
     try:
-        summary = kb_analytics.get_usage_summary()
+        summary = kb_stats.get_usage_summary()
         return {
             "usage_summary": summary,
             "timestamp": datetime.now().isoformat()
@@ -150,20 +147,78 @@ async def get_kb_usage_summary():
         logger.error(f"Error getting KB usage summary: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/kb-analytics/entry/{entry_title}")
-async def get_entry_analytics(entry_title: str):
-    """Get detailed analytics for a specific KB entry"""
+@router.get("/kb-analytics/entry/{parent_entry_id}")
+async def get_entry_stats(parent_entry_id: str):
+    """Get detailed stats for a specific KB entry"""
     try:
-        analytics = kb_analytics.get_entry_analytics(entry_title)
-        if analytics:
+        stats = kb_stats.get_entry_stats(parent_entry_id)
+        if stats:
             return {
-                "entry_analytics": analytics,
+                "entry_stats": stats,
                 "timestamp": datetime.now().isoformat()
             }
         else:
             raise HTTPException(status_code=404, detail="Entry not found or no usage data")
     except Exception as e:
-        logger.error(f"Error getting entry analytics: {e}")
+        logger.error(f"Error getting entry stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/kb-analytics/sync-usage-counts")
+async def sync_kb_usage_counts():
+    """
+    Sync usage counts from kb_stats to kb_entries
+    
+    Reads all kb_stats documents and updates the corresponding
+    kb_entries documents with the usage_count field.
+    
+    Perfect for manual testing - click button to sync!
+    """
+    try:
+        db = get_firestore_client()
+        
+        if not db:
+            raise HTTPException(status_code=500, detail="Firebase not connected")
+        
+        # Get all kb_stats documents
+        kb_stats_docs = db.collection("kb_stats").get()
+        
+        updated_count = 0
+        errors = []
+        
+        for stat_doc in kb_stats_docs:
+            stat_data = stat_doc.to_dict()
+            parent_entry_id = stat_data.get("parent_entry_id")
+            usage_count = stat_data.get("usage_count", 0)
+            
+            if not parent_entry_id:
+                continue
+            
+            try:
+                # Update kb_entries document
+                kb_entry_ref = db.collection("kb_entries").document(parent_entry_id)
+                kb_entry_ref.update({
+                    "usageCount": usage_count,
+                    "lastUsed": stat_data.get("last_used"),
+                    "avgConfidence": stat_data.get("avg_confidence"),
+                    "lastSyncedUsageAt": datetime.now().isoformat()
+                })
+                updated_count += 1
+                
+            except Exception as e:
+                error_msg = f"Failed to update {parent_entry_id}: {str(e)}"
+                logger.error(error_msg)
+                errors.append(error_msg)
+        
+        return {
+            "message": "Usage counts synced successfully",
+            "updated_count": updated_count,
+            "total_stats": len(kb_stats_docs),
+            "errors": errors if errors else None,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error syncing usage counts: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/cache/health")

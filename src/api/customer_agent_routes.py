@@ -7,6 +7,7 @@ from datetime import datetime
 import logging
 from src.agent.orchestrator import Agent
 from src.memory.session_manager import SessionManager
+from src.utils.rate_limiter import check_rate_limit
 
 logger = logging.getLogger(__name__)
 
@@ -42,10 +43,19 @@ async def customer_agent(request: CustomerAgentRequest, http_request: Request):
     - NO source display
     - NO confidence scores
     - NO debug information
-    - Rate limiting: 50 queries/hour per session
+    - Rate limiting: 100 queries/day per user
     - Escalation detection enabled
     """
     try:
+        # ============ RATE LIMITING ============
+        check_rate_limit(
+            request=http_request,
+            endpoint_type="query",
+            agent_id=request.user_info.get("agent_id"),
+            user_email=request.user_info.get("email")
+        )
+        # =======================================
+        
         logger.info(f"👤 Customer Agent - Processing query: {request.message[:50]}...")
         
         # Get or create session
@@ -103,6 +113,9 @@ async def customer_agent(request: CustomerAgentRequest, http_request: Request):
             # ← NO confidence, NO sources, NO debug
         )
         
+    except HTTPException:
+        # Re-raise HTTPException (including rate limit 429) without modification
+        raise
     except Exception as e:
         logger.error(f"❌ Customer Agent error: {e}", exc_info=True)
         raise HTTPException(

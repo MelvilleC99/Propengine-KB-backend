@@ -9,6 +9,7 @@ from langchain_openai import ChatOpenAI
 from langchain.schema import HumanMessage
 from src.config.settings import settings
 from src.prompts.prompt_loader import prompt_loader
+from src.utils.token_tracker import token_tracker
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,11 @@ class ResponseGenerator:
         # Use top 3 contexts for response generation
         context_text = "\n\n".join(contexts[:3]) if contexts else "No relevant information found."
         
+        # DEBUG: Log what KB context we're sending to LLM
+        logger.info(f"🔍 KB Context being sent to LLM ({len(contexts)} contexts):")
+        for i, ctx in enumerate(contexts[:3], 1):
+            logger.info(f"  Context {i}: {ctx[:200]}{'...' if len(ctx) > 200 else ''}")
+        
         # Build full prompt (system + response generation)
         full_prompt = (
             self.system_prompt + "\n\n" +
@@ -64,6 +70,14 @@ class ResponseGenerator:
         logger.debug(f"Generating response for: {query[:50]}...")
         
         response = await self.llm.ainvoke([HumanMessage(content=full_prompt)])
+        
+        # Track token usage and cost
+        token_tracker.track_chat_usage(
+            response=response,
+            model=settings.OPENAI_MODEL,
+            session_id=None,  # Will be added if session context available
+            operation="response_generation"
+        )
         
         logger.info(f"✅ Response generated ({len(response.content)} chars)")
         

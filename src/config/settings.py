@@ -47,9 +47,11 @@ class Settings(BaseSettings):
     # FreshDesk Configuration (optional)
     FRESHDESK_DOMAIN: Optional[str] = os.getenv("FRESHDESK_DOMAIN")
     FRESHDESK_API_KEY: Optional[str] = os.getenv("FRESHDESK_API_KEY")
+    FRESHDESK_PRODUCT_ID: Optional[int] = int(os.getenv("FRESHDESK_PRODUCT_ID", "0")) or None
+    FRESHDESK_RESPONDER_ID: Optional[int] = int(os.getenv("FRESHDESK_RESPONDER_ID", "0")) or None
     
     # Query Settings
-    MAX_SEARCH_RESULTS: int = 3
+    MAX_SEARCH_RESULTS: int = 6  # Increased from 3 for better context
     MIN_CONFIDENCE_SCORE: float = 0.7
     
     class Config:

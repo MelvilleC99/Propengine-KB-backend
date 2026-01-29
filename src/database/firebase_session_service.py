@@ -26,10 +26,15 @@ class FirebaseSessionManager:
         
         session_data = {
             "session_id": session_id,
+            
+            # User identification
+            "agent_id": user_info.get("agent_id") if user_info else None,
             "user_email": user_info.get("email") if user_info else None,
             "user_name": user_info.get("name") if user_info else None,
             "company": user_info.get("company") if user_info else None,
             "division": user_info.get("division") if user_info else None,
+            "agency": user_info.get("agency") if user_info else None,
+            "office": user_info.get("office") if user_info else None,
             "user_type": user_info.get("user_type") if user_info else None,
             
             # Session metadata

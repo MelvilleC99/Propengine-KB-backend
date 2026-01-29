@@ -13,7 +13,7 @@ class ContextBuilder:
     """Builds context from search results"""
     
     @staticmethod
-    def extract_contexts(results: List[Dict], query: str, max_contexts: int = 3) -> List[str]:
+    def extract_contexts(results: List[Dict], query: str, max_contexts: int = 10) -> List[str]:
         """
         Extract key excerpts from search results
         
@@ -26,31 +26,13 @@ class ContextBuilder:
             List of context strings
         """
         contexts = []
-        query_words = query.lower().split()
         
         for r in results[:max_contexts]:
             content = r.get("content", "")
             
-            # Extract key excerpt (max 150 chars) instead of full content
-            if len(content) > 150:
-                # Find sentences containing query keywords
-                sentences = content.split('.')
-                relevant_sentences = []
-                
-                for sentence in sentences:
-                    if any(word in sentence.lower() for word in query_words):
-                        relevant_sentences.append(sentence.strip())
-                        if len(' '.join(relevant_sentences)) > 100:
-                            break
-                
-                if relevant_sentences:
-                    excerpt = '. '.join(relevant_sentences) + '.'
-                else:
-                    excerpt = content[:150] + "..."
-            else:
-                excerpt = content
-            
-            contexts.append(excerpt)
+            # Use full content - don't truncate!
+            # The LLM needs complete information to answer accurately
+            contexts.append(content)
         
         logger.debug(f"Extracted {len(contexts)} contexts from {len(results)} results")
         return contexts
@@ -61,15 +43,17 @@ class ContextBuilder:
         Build source metadata from search results
         
         Args:
-            results: List of search result dictionaries
+            results: List of search result dictionaries (from vector_search)
             
         Returns:
-            List of source metadata dictionaries
+            List of source metadata dictionaries with entry_id and parent_entry_id
         """
         sources = []
         
         for r in results:
             source = {
+                "entry_id": r.get("entry_id"),  # AstraDB chunk ID
+                "parent_entry_id": r.get("parent_entry_id"),  # ← ADDED: Firebase KB entry ID
                 "title": r.get("metadata", {}).get("title", "Untitled Entry"),
                 "section": r.get("entry_type", "unknown"),
                 "confidence": r.get("similarity_score", 0.0),

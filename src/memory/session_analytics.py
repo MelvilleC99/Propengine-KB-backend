@@ -6,6 +6,7 @@ Handles query buffering and batch analytics writing to Firebase
 from typing import Dict, List, Optional
 from datetime import datetime
 import logging
+from src.utils.token_tracker import token_tracker
 
 logger = logging.getLogger(__name__)
 
@@ -147,14 +148,18 @@ class SessionAnalytics:
                 logger.warning(f"No queries to write for session {session_id}")
                 return False
             
+            # Get session costs from token_tracker
+            session_costs = token_tracker.get_session_costs(session_id)
+            
             logger.info(f"📊 Writing {len(queries)} queries for session {session_id}")
             
-            # Write analytics batch
+            # Write analytics batch (including costs)
             if self.firebase_analytics:
                 await self.firebase_analytics.batch_write_analytics(
                     session_id=session_id,
                     agent_id=agent_id,
-                    queries=queries
+                    queries=queries,
+                    session_costs=session_costs  # ← ADD costs
                 )
                 logger.info(f"✅ Analytics written for session {session_id}")
             
@@ -162,13 +167,17 @@ class SessionAnalytics:
             user_data = self.session_users.get(session_id)
             
             # Update user stats (creates user if doesn't exist)
+            # Include total cost for this session
+            total_cost = session_costs.get("total_cost", 0.0) if session_costs else 0.0
+            
             if self.firebase_users:
                 await self.firebase_users.update_user_activity(
                     agent_id=agent_id,
                     num_queries=len(queries),
-                    user_data=user_data
+                    user_data=user_data,
+                    total_cost=total_cost  # ← ADD cost
                 )
-                logger.info(f"✅ User activity updated for {agent_id}")
+                logger.info(f"✅ User activity updated for {agent_id} (cost: ${total_cost:.6f})")
             
             return True
             

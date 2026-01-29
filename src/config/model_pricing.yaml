@@ -1,0 +1,52 @@
+# Model Pricing Configuration
+# Prices per 1 MILLION tokens
+# Last updated: 2026-01-28
+
+# ==============================================
+# EMBEDDING MODELS (used for vector search)
+# ==============================================
+embedding_models:
+  text-embedding-3-small:
+    cost_per_1m_tokens: 0.02
+  
+  text-embedding-3-large:
+    cost_per_1m_tokens: 0.13
+  
+  text-embedding-ada-002:
+    cost_per_1m_tokens: 0.10
+
+# ==============================================
+# CHAT MODELS (used for query enhancement & response)
+# ==============================================
+chat_models:
+  gpt-4-turbo:
+    input_cost_per_1m: 10.00
+    output_cost_per_1m: 30.00
+  
+  gpt-4-turbo-preview:
+    input_cost_per_1m: 10.00
+    output_cost_per_1m: 30.00
+  
+  gpt-4:
+    input_cost_per_1m: 30.00
+    output_cost_per_1m: 60.00
+  
+  gpt-3.5-turbo:
+    input_cost_per_1m: 0.50
+    output_cost_per_1m: 1.50
+  
+  gpt-4o:
+    input_cost_per_1m: 2.50
+    output_cost_per_1m: 10.00
+  
+  gpt-4o-mini:
+    input_cost_per_1m: 0.15
+    output_cost_per_1m: 0.60
+
+# ==============================================
+# DEFAULT (if model not found)
+# ==============================================
+default:
+  embedding_cost_per_1m: 0.02
+  chat_input_cost_per_1m: 0.50
+  chat_output_cost_per_1m: 1.50

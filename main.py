@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from src.config.settings import settings
 from src.api import admin_routes, kb_routes, session_endpoints
 from src.api import test_agent_routes, support_agent_routes, customer_agent_routes
-from src.api import feedback_routes
+from src.api import feedback_routes, agent_failure_routes, health_routes
 from src.database.astra_client import AstraDBConnection
 from src.database.firebase_client import initialize_firebase, test_firebase_connection
 
@@ -88,12 +88,14 @@ app.add_middleware(
 )
 
 # Include routers
+app.include_router(health_routes.router, tags=["health"])  # Health check endpoints
 app.include_router(test_agent_routes.router, tags=["test-agent"])
 app.include_router(support_agent_routes.router, tags=["support-agent"])
 app.include_router(customer_agent_routes.router, tags=["customer-agent"])
 app.include_router(admin_routes.router, prefix="/api/admin", tags=["admin"])
 app.include_router(kb_routes.router, tags=["kb"])
 app.include_router(feedback_routes.router, tags=["feedback"])
+app.include_router(agent_failure_routes.router, tags=["agent-failure"])
 app.include_router(session_endpoints.router, prefix="/api", tags=["sessions"])
 
 @app.get("/")

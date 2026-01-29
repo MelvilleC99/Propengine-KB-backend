@@ -1,32 +1,37 @@
 """
-KB Analytics Tracker for monitoring knowledge base usage
-Tracks which KB entries are used most frequently
+KB Stats Tracker for monitoring knowledge base entry performance
+Tracks which KB entries are used most frequently and their effectiveness
 """
 
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 from datetime import datetime
 from src.database.firebase_session_service import FirebaseSessionManager
 
 logger = logging.getLogger(__name__)
 
-class KBAnalyticsTracker:
+class KBStatsTracker:
     """
-    Tracks knowledge base entry usage for analytics and optimization
+    Tracks knowledge base entry statistics for analytics and optimization
+    
+    This writes to the 'kb_stats' collection with INSTANT updates on each query.
+    Each KB entry gets its own document tracking aggregate performance metrics.
+    Uses parent_entry_id to group chunks from the same Firebase KB entry.
     
     Metrics tracked:
-    - Entry usage count
+    - Entry usage count (deduplicated by parent_entry_id)
     - Average confidence scores
+    - Average similarity scores
     - Last used timestamps
-    - User query patterns
+    - Last query that used this entry
     """
     
     def __init__(self):
-        """Initialize analytics tracker with Firebase backend (lazy)"""
+        """Initialize stats tracker with Firebase backend (lazy)"""
         self._firebase_sessions = None
-        self.analytics_collection = "kb_analytics"
+        self.stats_collection = "kb_stats"  # ← Changed from kb_analytics
         
-        logger.info("✅ KB Analytics Tracker initialized")
+        logger.info("✅ KB Stats Tracker initialized")
     
     @property
     def firebase_sessions(self):
@@ -34,9 +39,9 @@ class KBAnalyticsTracker:
         if self._firebase_sessions is None:
             try:
                 self._firebase_sessions = FirebaseSessionManager()
-                logger.info("✅ Firebase session manager connected for analytics")
+                logger.info("✅ Firebase session manager connected for KB stats")
             except Exception as e:
-                logger.warning(f"⚠️ Firebase session manager unavailable for analytics: {e}")
+                logger.warning(f"⚠️ Firebase session manager unavailable for KB stats: {e}")
                 self._firebase_sessions = None
         return self._firebase_sessions
     
@@ -44,8 +49,11 @@ class KBAnalyticsTracker:
         """
         Track usage of KB entries from search results
         
+        Deduplicates by parent_entry_id to count each Firebase KB entry only once per query,
+        even if multiple chunks from the same entry are used.
+        
         Args:
-            sources: List of KB sources used in response
+            sources: List of KB sources used in response (must include parent_entry_id)
             query: User's original query
             confidence: Overall response confidence
             session_id: Session identifier
@@ -57,26 +65,57 @@ class KBAnalyticsTracker:
             if not sources:
                 return True
             
+            # ============ DEDUPLICATION BY PARENT_ENTRY_ID ============
+            # Group sources by parent_entry_id to track each Firebase KB entry only once
+            unique_entries: Dict[str, Dict] = {}
+            
             for source in sources:
-                self._update_entry_analytics(
+                parent_id = source.get("parent_entry_id")
+                
+                # Skip if no parent_entry_id
+                if not parent_id:
+                    logger.warning(f"⚠️ Source missing parent_entry_id, skipping: {source.get('title', 'Unknown')}")
+                    continue
+                
+                # If we haven't seen this parent entry yet, add it
+                if parent_id not in unique_entries:
+                    unique_entries[parent_id] = source
+                else:
+                    # We've seen this parent_entry_id already - use the one with higher similarity
+                    existing_score = unique_entries[parent_id].get("similarity_score", 0.0)
+                    current_score = source.get("similarity_score", 0.0)
+                    if current_score > existing_score:
+                        unique_entries[parent_id] = source
+            
+            logger.info(f"📊 Deduplicated {len(sources)} chunks into {len(unique_entries)} unique KB entries")
+            # ===========================================================
+            
+            # Update stats for each unique KB entry
+            for parent_id, source in unique_entries.items():
+                self._update_entry_stats(
+                    parent_entry_id=parent_id,
                     source=source,
                     query=query, 
                     confidence=confidence,
                     session_id=session_id
                 )
             
-            logger.info(f"✅ Tracked usage for {len(sources)} KB entries")
+            logger.info(f"✅ Tracked usage for {len(unique_entries)} unique KB entries")
             return True
             
         except Exception as e:
             logger.error(f"❌ Failed to track KB usage: {e}")
             return False
     
-    def _update_entry_analytics(self, source: Dict, query: str, confidence: float, session_id: str) -> bool:
+    def _update_entry_stats(self, parent_entry_id: str, source: Dict, query: str, confidence: float, session_id: str) -> bool:
         """
-        Update analytics for a specific KB entry
+        Update statistics for a specific KB entry
+        
+        Writes to kb_stats collection with INSTANT Firebase write.
+        Uses parent_entry_id (Firebase KB entry ID) as document ID.
         
         Args:
+            parent_entry_id: Firebase KB entry ID (from parent_entry_id field)
             source: KB source information
             query: User query
             confidence: Response confidence
@@ -90,16 +129,13 @@ class KBAnalyticsTracker:
                 return False
             
             # Extract entry information
-            entry_title = source.get("title", "Unknown Entry")
+            entry_title = source.get("metadata", {}).get("title") or source.get("title", "Unknown Entry")
             entry_type = source.get("entry_type", "unknown")
             similarity_score = source.get("similarity_score", 0.0)
             
-            # Create entry ID from title (normalized)
-            entry_id = self._normalize_entry_id(entry_title)
-            
-            # Prepare analytics data
-            analytics_data = {
-                "entry_id": entry_id,
+            # Prepare stats data
+            stats_data = {
+                "parent_entry_id": parent_entry_id,  # ← Firebase KB entry ID
                 "entry_title": entry_title,
                 "entry_type": entry_type,
                 "last_used": datetime.now().isoformat(),
@@ -109,8 +145,8 @@ class KBAnalyticsTracker:
                 "last_session_id": session_id
             }
             
-            # Get existing analytics document
-            doc_ref = self.firebase_sessions.db.collection(self.analytics_collection).document(entry_id)
+            # Get existing stats document (using parent_entry_id as document ID)
+            doc_ref = self.firebase_sessions.db.collection(self.stats_collection).document(parent_entry_id)
             doc = doc_ref.get()
             
             if doc.exists:
@@ -127,30 +163,31 @@ class KBAnalyticsTracker:
                 old_avg_similarity = existing_data.get("avg_similarity_score", 0.0) 
                 new_avg_similarity = ((old_avg_similarity * old_count) + similarity_score) / new_count
                 
-                # Update analytics
-                analytics_data.update({
+                # Update stats
+                stats_data.update({
                     "usage_count": new_count,
                     "avg_confidence": round(new_avg_confidence, 3),
                     "avg_similarity_score": round(new_avg_similarity, 3),
-                    "first_used": existing_data.get("first_used", analytics_data["last_used"])
+                    "first_used": existing_data.get("first_used", stats_data["last_used"])
                 })
                 
             else:
                 # Create new entry
-                analytics_data.update({
+                stats_data.update({
                     "usage_count": 1,
                     "avg_confidence": confidence,
                     "avg_similarity_score": similarity_score,
-                    "first_used": analytics_data["last_used"]
+                    "first_used": stats_data["last_used"]
                 })
             
-            # Write to Firebase
-            doc_ref.set(analytics_data)
+            # Write to Firebase (INSTANT write)
+            doc_ref.set(stats_data)
             
+            logger.debug(f"✅ Updated stats for Firebase KB entry: {parent_entry_id} (usage: {stats_data['usage_count']})")
             return True
             
         except Exception as e:
-            logger.error(f"❌ Failed to update entry analytics: {e}")
+            logger.error(f"❌ Failed to update entry stats: {e}")
             return False
     
     def get_popular_entries(self, limit: int = 10, entry_type: Optional[str] = None) -> List[Dict]:
@@ -168,7 +205,7 @@ class KBAnalyticsTracker:
             if not self.firebase_sessions.db:
                 return []
             
-            query = self.firebase_sessions.db.collection(self.analytics_collection)
+            query = self.firebase_sessions.db.collection(self.stats_collection)
             
             # Filter by entry type if specified
             if entry_type:
@@ -188,22 +225,21 @@ class KBAnalyticsTracker:
             logger.error(f"❌ Failed to get popular entries: {e}")
             return []
     
-    def get_entry_analytics(self, entry_title: str) -> Optional[Dict]:
+    def get_entry_stats(self, parent_entry_id: str) -> Optional[Dict]:
         """
-        Get detailed analytics for a specific KB entry
+        Get detailed statistics for a specific KB entry
         
         Args:
-            entry_title: Title of the KB entry
+            parent_entry_id: Firebase KB entry ID
             
         Returns:
-            Optional[Dict]: Entry analytics or None if not found
+            Optional[Dict]: Entry statistics or None if not found
         """
         try:
             if not self.firebase_sessions.db:
                 return None
             
-            entry_id = self._normalize_entry_id(entry_title)
-            doc_ref = self.firebase_sessions.db.collection(self.analytics_collection).document(entry_id)
+            doc_ref = self.firebase_sessions.db.collection(self.stats_collection).document(parent_entry_id)
             doc = doc_ref.get()
             
             if doc.exists:
@@ -212,7 +248,7 @@ class KBAnalyticsTracker:
                 return None
                 
         except Exception as e:
-            logger.error(f"❌ Failed to get entry analytics: {e}")
+            logger.error(f"❌ Failed to get entry stats: {e}")
             return None
     
     def get_usage_summary(self) -> Dict:
@@ -226,8 +262,8 @@ class KBAnalyticsTracker:
             if not self.firebase_sessions.db:
                 return {"error": "Firebase not available"}
             
-            # Get all analytics documents
-            docs = self.firebase_sessions.db.collection(self.analytics_collection).get()
+            # Get all stats documents
+            docs = self.firebase_sessions.db.collection(self.stats_collection).get()
             
             if not docs:
                 return {"total_entries": 0}
@@ -257,19 +293,7 @@ class KBAnalyticsTracker:
         except Exception as e:
             logger.error(f"❌ Failed to get usage summary: {e}")
             return {"error": str(e)}
-    
-    def _normalize_entry_id(self, title: str) -> str:
-        """
-        Normalize entry title to create consistent document ID
-        
-        Args:
-            title: Original entry title
-            
-        Returns:
-            str: Normalized entry ID
-        """
-        # Convert to lowercase, replace spaces and special chars with underscores
-        import re
-        normalized = re.sub(r'[^a-zA-Z0-9]+', '_', title.lower())
-        normalized = normalized.strip('_')  # Remove leading/trailing underscores
-        return normalized[:50]  # Limit length for Firestore
+
+
+# For backwards compatibility, keep the old class name as an alias
+KBAnalyticsTracker = KBStatsTracker

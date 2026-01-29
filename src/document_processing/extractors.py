@@ -179,14 +179,21 @@ class DocxExtractor:
         )
     
     def _is_word_error_text(self, text: str) -> bool:
-        """Check if text is a Word error/placeholder message"""
+        """Check if text is a Word error/placeholder/comment message"""
         error_patterns = [
             "no table of contents entries found",
             "error! no table of figures entries found",
             "error! bookmark not defined",
             "error! reference source not found",
+            "commented [",  # Word comments like "Commented [SN1]:"
+            "comment:",     # Alternative comment format
         ]
         text_lower = text.lower().strip()
+        
+        # Check for @ mentions (like @username in comments)
+        if text_lower.startswith("@"):
+            return True
+            
         return any(pattern in text_lower for pattern in error_patterns)
     
     def _get_heading_level(self, paragraph) -> Optional[int]:

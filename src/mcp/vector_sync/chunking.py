@@ -118,24 +118,33 @@ def chunk_definition(entry: Dict[str, Any]) -> List[Chunk]:
     Returns:
         List with single chunk
     """
-    raw_data = entry.get("rawFormData", {})
+    # Use pre-built content from frontend
+    content = entry.get("content", "")
     
-    # Build content - use _to_string to handle lists/dicts
-    parts = []
+    # Fallback: Build from rawFormData if content is missing (shouldn't happen)
+    if not content:
+        logger.warning(f"No content field found for definition {entry.get('id')}, building from rawFormData")
+        raw_data = entry.get("rawFormData", {})
+        parts = []
+        
+        if term := raw_data.get("term"):
+            parts.append(f"Term: {_to_string(term)}")
+        
+        if definition := raw_data.get("definition"):
+            parts.append(f"Definition: {_to_string(definition)}")
+        
+        if context := raw_data.get("context"):
+            parts.append(f"Context: {_to_string(context)}")
+        
+        if examples := raw_data.get("examples"):
+            parts.append(f"Examples: {_to_string(examples)}")
+        
+        content = "\n\n".join(parts)
     
-    if term := raw_data.get("term"):
-        parts.append(f"Term: {_to_string(term)}")
-    
-    if definition := raw_data.get("definition"):
-        parts.append(f"Definition: {_to_string(definition)}")
-    
-    if context := raw_data.get("context"):
-        parts.append(f"Context: {_to_string(context)}")
-    
-    if examples := raw_data.get("examples"):
-        parts.append(f"Examples: {_to_string(examples)}")
-    
-    content = "\n\n".join(parts)
+    # Add title as header for context
+    title = entry.get("title", "")
+    if title and not content.startswith(title):
+        content = f"{title}\n\n{content}"
     
     # Create single chunk
     chunk = Chunk(
@@ -144,7 +153,7 @@ def chunk_definition(entry: Dict[str, Any]) -> List[Chunk]:
         total_chunks=1,
         section_type="full",
         parent_id=entry.get("id"),
-        parent_title=entry.get("title", "Untitled"),
+        parent_title=title or "Untitled",
         metadata={
             "entryType": "definition",
             "category": entry.get("category"),
@@ -153,6 +162,8 @@ def chunk_definition(entry: Dict[str, Any]) -> List[Chunk]:
             "tags": entry.get("metadata", {}).get("tags", [])
         }
     )
+    
+    logger.info(f"Created definition chunk with {len(content)} characters")
     
     return [chunk]
 
@@ -168,33 +179,56 @@ def chunk_error(entry: Dict[str, Any]) -> List[Chunk]:
     Returns:
         List with single chunk
     """
-    raw_data = entry.get("rawFormData", {})
+    # Use pre-built content from frontend
+    content = entry.get("content", "")
     
-    # Build content - use _to_string to handle lists/dicts
-    parts = []
+    # Fallback: Build from rawFormData if content is missing (shouldn't happen)
+    if not content:
+        logger.warning(f"No content field found for error {entry.get('id')}, building from rawFormData")
+        raw_data = entry.get("rawFormData", {})
+        parts = []
+        
+        if title := entry.get("title"):
+            parts.append(f"Error: {_to_string(title)}")
+        
+        if error_code := raw_data.get("errorCode"):
+            parts.append(f"Error Code: {_to_string(error_code)}")
+        
+        if description := raw_data.get("description"):
+            parts.append(f"Description: {_to_string(description)}")
+        
+        if symptoms := raw_data.get("symptoms"):
+            parts.append(f"Symptoms: {_to_string(symptoms)}")
+        
+        if solution := raw_data.get("solution"):
+            parts.append(f"Solution: {_to_string(solution)}")
+        
+        if causes := raw_data.get("causes"):
+            # Handle error causes specially - they have cause_description and solution
+            causes_text = []
+            for i, cause in enumerate(causes, 1):
+                if isinstance(cause, dict):
+                    cause_desc = cause.get("cause_description", "")
+                    cause_solution = cause.get("solution", "")
+                    if cause_desc:
+                        causes_text.append(f"Cause {i}: {cause_desc}")
+                    if cause_solution:
+                        causes_text.append(f"Solution: {cause_solution}")
+                else:
+                    causes_text.append(f"Cause {i}: {str(cause)}")
+            
+            if causes_text:
+                parts.append("Common Causes:\n" + "\n\n".join(causes_text))
+        
+        if prevention := raw_data.get("prevention"):
+            parts.append(f"Prevention: {_to_string(prevention)}")
+        
+        content = "\n\n".join(parts)
     
-    if title := entry.get("title"):
-        parts.append(f"Error: {_to_string(title)}")
-    
-    if error_code := raw_data.get("errorCode"):
-        parts.append(f"Error Code: {_to_string(error_code)}")
-    
-    if description := raw_data.get("description"):
-        parts.append(f"Description: {_to_string(description)}")
-    
-    if symptoms := raw_data.get("symptoms"):
-        parts.append(f"Symptoms: {_to_string(symptoms)}")
-    
-    if solution := raw_data.get("solution"):
-        parts.append(f"Solution: {_to_string(solution)}")
-    
-    if causes := raw_data.get("causes"):
-        parts.append(f"Common Causes: {_to_string(causes)}")
-    
-    if prevention := raw_data.get("prevention"):
-        parts.append(f"Prevention: {_to_string(prevention)}")
-    
-    content = "\n\n".join(parts)
+    # Add title as header for context if not already there
+    title = entry.get("title", "")
+    if title and not content.startswith("Error:"):
+        content = f"Error: {title}\n\n{content}"
     
     # Create single chunk
     chunk = Chunk(
@@ -203,7 +237,7 @@ def chunk_error(entry: Dict[str, Any]) -> List[Chunk]:
         total_chunks=1,
         section_type="full",
         parent_id=entry.get("id"),
-        parent_title=entry.get("title", "Untitled"),
+        parent_title=title or "Untitled",
         metadata={
             "entryType": "error",
             "category": entry.get("category"),
@@ -213,13 +247,21 @@ def chunk_error(entry: Dict[str, Any]) -> List[Chunk]:
         }
     )
     
+    logger.info(f"Created error chunk with {len(content)} characters")
+    
     return [chunk]
 
 
 def chunk_how_to(entry: Dict[str, Any]) -> List[Chunk]:
     """
     Create context-aware chunks for how_to/workflow entries.
-    Chunks by heading sections: overview, prerequisites, steps, issues, tips
+    
+    For entries with pre-built content field:
+    - Uses the content directly if it's reasonably sized (<2000 tokens)
+    - Falls back to section-based chunking for very large content
+    
+    For entries without content field (legacy):
+    - Chunks by heading sections: overview, prerequisites, steps, issues, tips
     
     Each chunk includes:
     - Main content for that section
@@ -232,9 +274,47 @@ def chunk_how_to(entry: Dict[str, Any]) -> List[Chunk]:
     Returns:
         List of chunks with contextual metadata
     """
-    raw_data = entry.get("rawFormData", {})
+    # Try to use pre-built content first
+    content = entry.get("content", "")
     entry_id = entry.get("id")
     entry_title = entry.get("title", "Untitled")
+    
+    # If content exists and is reasonably sized, use it as a single chunk
+    if content:
+        # Rough token estimate (words * 1.3)
+        estimated_tokens = len(content.split()) * 1.3
+        
+        if estimated_tokens < 2000:  # Single chunk for reasonable size
+            logger.info(f"Using single chunk for how_to entry {entry_id} ({estimated_tokens:.0f} tokens)")
+            
+            # Add title as header if not already there
+            if not content.startswith(entry_title):
+                content = f"How to: {entry_title}\n\n{content}"
+            
+            chunk = Chunk(
+                content=content,
+                chunk_index=0,
+                total_chunks=1,
+                section_type="full",
+                parent_id=entry_id,
+                parent_title=entry_title,
+                metadata={
+                    "entryType": entry.get("type"),
+                    "category": entry.get("category"),
+                    "subcategory": entry.get("metadata", {}).get("subcategory"),
+                    "userType": entry.get("metadata", {}).get("userType", "internal"),
+                    "product": entry.get("metadata", {}).get("product", "property_engine"),
+                    "tags": entry.get("metadata", {}).get("tags", [])
+                }
+            )
+            
+            return [chunk]
+        else:
+            logger.info(f"Content too large ({estimated_tokens:.0f} tokens), falling back to section-based chunking")
+    
+    # Fallback: Build sections from rawFormData for large content or missing content field
+    logger.warning(f"Building how_to chunks from rawFormData for entry {entry_id}")
+    raw_data = entry.get("rawFormData", {})
     
     # Build sections
     sections = []
@@ -361,23 +441,29 @@ def chunk_single(entry: Dict[str, Any]) -> List[Chunk]:
     Returns:
         List with single chunk
     """
-    # Combine all available content
-    parts = []
+    # Try pre-built content first
+    content = entry.get("content", "")
     
-    if title := entry.get("title"):
-        parts.append(title)
+    # Fallback: Combine from rawFormData if no content field
+    if not content:
+        logger.warning(f"No content field found for entry {entry.get('id')}, building from rawFormData")
+        parts = []
+        
+        if title := entry.get("title"):
+            parts.append(title)
+        
+        raw_data = entry.get("rawFormData", {})
+        
+        for key, value in raw_data.items():
+            if value and isinstance(value, str):
+                parts.append(value)
+        
+        content = "\n\n".join(parts)
     
-    raw_data = entry.get("rawFormData", {})
-    
-    for key, value in raw_data.items():
-        if value and isinstance(value, str):
-            parts.append(value)
-    
-    # Fallback to content field
-    if not parts and (content := entry.get("content")):
-        parts.append(content)
-    
-    content = "\n\n".join(parts)
+    # Add title as header if not already there
+    title = entry.get("title", "")
+    if title and not content.startswith(title):
+        content = f"{title}\n\n{content}"
     
     chunk = Chunk(
         content=content,
@@ -385,7 +471,7 @@ def chunk_single(entry: Dict[str, Any]) -> List[Chunk]:
         total_chunks=1,
         section_type="full",
         parent_id=entry.get("id"),
-        parent_title=entry.get("title", "Untitled"),
+        parent_title=title or "Untitled",
         metadata={
             "entryType": entry.get("type", "unknown"),
             "category": entry.get("category"),
@@ -394,6 +480,8 @@ def chunk_single(entry: Dict[str, Any]) -> List[Chunk]:
             "tags": entry.get("metadata", {}).get("tags", [])
         }
     )
+    
+    logger.info(f"Created single chunk with {len(content)} characters")
     
     return [chunk]
 

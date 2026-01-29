@@ -8,6 +8,7 @@ import logging
 from src.agent.orchestrator import Agent
 from src.memory.session_manager import SessionManager
 from src.database.astra_client import AstraDBConnection
+from src.utils.rate_limiter import check_rate_limit
 
 logger = logging.getLogger(__name__)
 
@@ -57,9 +58,19 @@ async def test_agent(request: TestAgentRequest, http_request: Request):
     - Shows ALL debug information
     - Displays confidence scores
     - Shows all sources with complete metadata
-    - No rate limiting
+    - Rate limiting: 100 queries/day (same as others for testing)
     """
     try:
+        # ============ RATE LIMITING ============
+        # Test agent also has rate limiting to prevent abuse
+        check_rate_limit(
+            request=http_request,
+            endpoint_type="query",
+            agent_id=request.user_info.get("agent_id"),
+            user_email=request.user_info.get("email")
+        )
+        # =======================================
+        
         logger.info(f"🧪 Test Agent - Processing query: {request.message[:50]}...")
         
         # Get or create session
@@ -136,6 +147,9 @@ async def test_agent(request: TestAgentRequest, http_request: Request):
             debug_metrics=result.get("debug_metrics")
         )
         
+    except HTTPException:
+        # Re-raise HTTPException (including rate limit 429) without modification
+        raise
     except Exception as e:
         logger.error(f"❌ Test Agent error: {e}", exc_info=True)
         raise HTTPException(

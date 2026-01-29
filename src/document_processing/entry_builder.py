@@ -74,16 +74,11 @@ class EntryBuilder:
         # Build searchable content string
         content = self._build_searchable_content(analysis_result, extraction_result)
         
-        # Collect all key topics as tags
-        all_topics = []
-        for section in analysis_result.sections:
-            all_topics.extend(section.key_topics)
-        
-        # Combine with user tags
+        # Use only user-provided tags (no auto-extraction)
         user_tags = user_metadata.get("tags", [])
         if isinstance(user_tags, str):
             user_tags = [t.strip() for t in user_tags.split(",") if t.strip()]
-        combined_tags = list(set(user_tags + all_topics))
+        combined_tags = user_tags
         
         return {
             "type": "how_to",

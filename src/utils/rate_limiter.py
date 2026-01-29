@@ -1,90 +1,190 @@
-"""Rate limiting for PropertyEngine KB API"""
+"""Rate limiting for PropertyEngine KB API using Redis"""
 
 import time
 import logging
 from typing import Dict, Optional
-from collections import defaultdict, deque
 from fastapi import HTTPException, Request
 from datetime import datetime, timedelta
+from src.config.rate_limits import get_rate_limits, get_limit_for_endpoint
 
 logger = logging.getLogger(__name__)
 
 class RateLimiter:
-    """Simple in-memory rate limiter"""
+    """Redis-backed rate limiter for fast, distributed rate limiting"""
     
     def __init__(self):
-        # Store request timestamps per identifier (IP or user)
-        self.requests: Dict[str, deque] = defaultdict(deque)
+        # Lazy load Redis
+        self._redis = None
         
-        # Rate limit configurations
-        self.limits = {
-            "chat": {"requests": 20, "window": 1800},     # 20 requests per 30 minutes
-            "feedback": {"requests": 10, "window": 300},   # 10 feedback per 5 minutes
-            "ticket": {"requests": 3, "window": 900},      # 3 tickets per 15 minutes
-            "default": {"requests": 50, "window": 300}     # 50 requests per 5 minutes default
-        }
+        # Load rate limits from config file
+        self.limits = get_rate_limits()
+        logger.info("✅ Rate limits loaded from config")
+        
+    @property
+    def redis(self):
+        """Lazy load Redis client"""
+        if self._redis is None:
+            try:
+                from src.database.redis_client import get_redis_client
+                self._redis = get_redis_client()
+                logger.info("✅ Redis connected for rate limiting")
+            except Exception as e:
+                logger.warning(f"⚠️ Redis unavailable, rate limiting disabled: {e}")
+                self._redis = None
+        return self._redis
     
     def check_rate_limit(self, identifier: str, endpoint_type: str = "default") -> bool:
-        """Check if request is within rate limits"""
-        now = time.time()
-        limit_config = self.limits.get(endpoint_type, self.limits["default"])
+        """
+        Check if request is within rate limits using Redis
+        
+        Args:
+            identifier: Unique identifier (user email, agent_id, or IP)
+            endpoint_type: Type of endpoint (query, feedback, ticket, default)
+            
+        Returns:
+            bool: True if within limits, False if exceeded
+        """
+        if not self.redis:
+            logger.warning("⚠️ Redis unavailable, rate limiting bypassed")
+            return True
+        
+        limit_config = get_limit_for_endpoint(endpoint_type)
         max_requests = limit_config["requests"]
         window_seconds = limit_config["window"]
         
-        # Get request history for this identifier
-        request_times = self.requests[identifier]
+        # Redis key format: rate_limit:{endpoint_type}:{identifier}
+        redis_key = f"rate_limit:{endpoint_type}:{identifier}"
         
-        # Remove old requests outside the time window
-        while request_times and request_times[0] < now - window_seconds:
-            request_times.popleft()
-        
-        # Check if within limits
-        if len(request_times) >= max_requests:
-            logger.warning(f"Rate limit exceeded for {identifier} on {endpoint_type}: {len(request_times)}/{max_requests}")
-            return False
-        
-        # Add current request
-        request_times.append(now)
-        return True
+        try:
+            # Get current count
+            current_count = self.redis.get(redis_key)
+            
+            if current_count is None:
+                # First request - initialize counter
+                self.redis.setex(redis_key, window_seconds, 1)
+                return True
+            
+            current_count = int(current_count)
+            
+            # Check if limit exceeded
+            if current_count >= max_requests:
+                logger.warning(
+                    f"⚠️ Rate limit exceeded for {identifier} on {endpoint_type}: "
+                    f"{current_count}/{max_requests}"
+                )
+                return False
+            
+            # Increment counter
+            self.redis.incr(redis_key)
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Redis rate limit check failed: {e}")
+            # On error, allow the request (fail open)
+            return True
     
     def get_rate_limit_info(self, identifier: str, endpoint_type: str = "default") -> Dict:
-        """Get current rate limit status"""
-        now = time.time()
-        limit_config = self.limits.get(endpoint_type, self.limits["default"])
+        """
+        Get current rate limit status
+        
+        Args:
+            identifier: Unique identifier
+            endpoint_type: Type of endpoint
+            
+        Returns:
+            Dict with limit, remaining, reset_time, window_seconds
+        """
+        if not self.redis:
+            return {
+                "limit": 0,
+                "remaining": 0,
+                "reset_time": 0,
+                "window_seconds": 0,
+                "available": False
+            }
+        
+        limit_config = get_limit_for_endpoint(endpoint_type)
         max_requests = limit_config["requests"]
         window_seconds = limit_config["window"]
         
-        request_times = self.requests[identifier]
+        redis_key = f"rate_limit:{endpoint_type}:{identifier}"
         
-        # Count requests in current window
-        current_requests = len([t for t in request_times if t > now - window_seconds])
-        
-        return {
-            "limit": max_requests,
-            "remaining": max(0, max_requests - current_requests),
-            "reset_time": int(now + window_seconds),
-            "window_seconds": window_seconds
-        }
-    
-    def cleanup_old_requests(self):
-        """Cleanup old request records (call periodically)"""
-        now = time.time()
-        cutoff = now - 3600  # Remove requests older than 1 hour
-        
-        for identifier in list(self.requests.keys()):
-            request_times = self.requests[identifier]
-            while request_times and request_times[0] < cutoff:
-                request_times.popleft()
+        try:
+            current_count = self.redis.get(redis_key)
+            ttl = self.redis.ttl(redis_key)
             
-            # Remove empty deques
-            if not request_times:
-                del self.requests[identifier]
+            if current_count is None:
+                current_count = 0
+                reset_time = int(time.time()) + window_seconds
+            else:
+                current_count = int(current_count)
+                reset_time = int(time.time()) + (ttl if ttl > 0 else window_seconds)
+            
+            return {
+                "limit": max_requests,
+                "remaining": max(0, max_requests - current_count),
+                "reset_time": reset_time,
+                "window_seconds": window_seconds,
+                "available": True
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to get rate limit info: {e}")
+            return {
+                "limit": max_requests,
+                "remaining": max_requests,
+                "reset_time": int(time.time()) + window_seconds,
+                "window_seconds": window_seconds,
+                "available": False
+            }
+    
+    def reset_rate_limit(self, identifier: str, endpoint_type: str = "default") -> bool:
+        """
+        Reset rate limit for a specific identifier (admin function)
+        
+        Args:
+            identifier: Unique identifier
+            endpoint_type: Type of endpoint
+            
+        Returns:
+            bool: Success status
+        """
+        if not self.redis:
+            return False
+        
+        redis_key = f"rate_limit:{endpoint_type}:{identifier}"
+        
+        try:
+            self.redis.delete(redis_key)
+            logger.info(f"✅ Reset rate limit for {identifier} on {endpoint_type}")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Failed to reset rate limit: {e}")
+            return False
 
 # Global rate limiter instance
 rate_limiter = RateLimiter()
 
-def get_client_identifier(request: Request, user_email: Optional[str] = None) -> str:
-    """Get unique identifier for rate limiting (prefer user email over IP)"""
+def get_client_identifier(request: Request, user_email: Optional[str] = None, agent_id: Optional[str] = None) -> str:
+    """
+    Get unique identifier for rate limiting
+    
+    Priority:
+    1. agent_id (most reliable for logged-in users)
+    2. user_email
+    3. IP address (fallback for anonymous users)
+    
+    Args:
+        request: FastAPI request object
+        user_email: Optional user email
+        agent_id: Optional agent ID
+        
+    Returns:
+        str: Identifier in format "type:value"
+    """
+    if agent_id:
+        return f"agent:{agent_id}"
+    
     if user_email:
         return f"user:{user_email}"
     
@@ -98,9 +198,28 @@ def get_client_identifier(request: Request, user_email: Optional[str] = None) ->
     
     return f"ip:{client_ip}"
 
-def check_rate_limit(request: Request, endpoint_type: str, user_email: Optional[str] = None):
-    """Decorator/function to check rate limits and raise HTTPException if exceeded"""
-    identifier = get_client_identifier(request, user_email)
+def check_rate_limit(
+    request: Request, 
+    endpoint_type: str, 
+    user_email: Optional[str] = None,
+    agent_id: Optional[str] = None
+):
+    """
+    Check rate limits and raise HTTPException if exceeded
+    
+    Args:
+        request: FastAPI request
+        endpoint_type: Type of endpoint (query, feedback, ticket, default)
+        user_email: Optional user email
+        agent_id: Optional agent ID
+        
+    Raises:
+        HTTPException: 429 if rate limit exceeded
+        
+    Returns:
+        Dict: Rate limit info for response headers
+    """
+    identifier = get_client_identifier(request, user_email, agent_id)
     
     if not rate_limiter.check_rate_limit(identifier, endpoint_type):
         # Get rate limit info for error message
@@ -115,11 +234,12 @@ def check_rate_limit(request: Request, endpoint_type: str, user_email: Optional[
                 "error": "Rate limit exceeded",
                 "message": f"Too many {endpoint_type} requests. Try again in {reset_in} seconds.",
                 "limit": info["limit"],
+                "remaining": 0,
                 "reset_in_seconds": reset_in
             },
             headers={
                 "X-RateLimit-Limit": str(info["limit"]),
-                "X-RateLimit-Remaining": str(info["remaining"]),
+                "X-RateLimit-Remaining": "0",
                 "X-RateLimit-Reset": str(info["reset_time"]),
                 "Retry-After": str(reset_in)
             }

@@ -9,6 +9,7 @@ from langchain_openai import ChatOpenAI
 from langchain.schema import HumanMessage
 from src.config.settings import settings
 from src.prompts.prompt_loader import prompt_loader
+from src.utils.token_tracker import token_tracker
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -84,26 +85,50 @@ class QueryBuilder:
             # Call LLM
             response = await self.llm.ainvoke([HumanMessage(content=full_prompt)])
             
+            # Track token usage
+            token_tracker.track_chat_usage(
+                response=response,
+                model=settings.OPENAI_MODEL,
+                session_id=None,  # Will be added by caller if needed
+                operation="query_enhancement"
+            )
+            
             # Parse JSON response
             response_text = response.content.strip()
             
-            # Clean up response text
-            response_text = response_text.strip()
+            # Log raw response for debugging
+            logger.debug(f"Raw LLM response (first 300 chars): {response_text[:300]}")
             
-            # Remove markdown formatting if present
-            if response_text.startswith("```json"):
-                response_text = response_text.replace("```json", "").replace("```", "").strip()
-            elif response_text.startswith("```"):
-                response_text = response_text.replace("```", "").strip()
+            # More aggressive cleanup
+            # 1. Remove markdown code blocks
+            if "```json" in response_text:
+                # Extract content between ```json and ```
+                start = response_text.find("```json") + 7
+                end = response_text.find("```", start)
+                if end != -1:
+                    response_text = response_text[start:end].strip()
+            elif "```" in response_text:
+                # Extract content between ``` and ```
+                start = response_text.find("```") + 3
+                end = response_text.find("```", start)
+                if end != -1:
+                    response_text = response_text[start:end].strip()
             
-            # Remove any leading/trailing whitespace and newlines
-            response_text = response_text.strip()
-            
-            # Extract JSON object by finding first { and last }
+            # 2. Remove any leading/trailing text before/after JSON
+            # Find the FIRST { and LAST }
             first_brace = response_text.find('{')
             last_brace = response_text.rfind('}')
-            if first_brace != -1 and last_brace != -1:
-                response_text = response_text[first_brace:last_brace+1]
+            
+            if first_brace == -1 or last_brace == -1:
+                raise ValueError(f"No valid JSON object found in response")
+            
+            response_text = response_text[first_brace:last_brace+1]
+            
+            # 3. Final cleanup
+            response_text = response_text.strip()
+            
+            # Log cleaned JSON before parsing
+            logger.debug(f"Cleaned JSON (first 300 chars): {response_text[:300]}")
             
             structured_data = json.loads(response_text)
             
@@ -126,11 +151,13 @@ class QueryBuilder:
             
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse LLM JSON response: {e}")
-            logger.debug(f"Response was: {response.content}")
+            logger.error(f"Raw response: {response.content if 'response' in locals() else 'N/A'}")
+            logger.error(f"Attempted to parse: {response_text if 'response_text' in locals() else 'N/A'}")
             return self._build_simple(query, query_type)
         
         except Exception as e:
             logger.error(f"Error in query analysis: {e}")
+            logger.error(f"Raw response: {response.content if 'response' in locals() else 'N/A'}")
             return self._build_simple(query, query_type)
     
     def _build_simple(self, query: str, query_type: str) -> StructuredQuery:
