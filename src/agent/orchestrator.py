@@ -259,11 +259,18 @@ class Agent:
             
             # === STEP 12: Aggregate cost breakdown ===
             cost_breakdown = token_tracker.get_cost_breakdown_for_session(session_id)
+            logger.info(f"💰 Cost breakdown for session {session_id}: {cost_breakdown}")
             self.metrics_collector.record_cost_breakdown(cost_breakdown)
             
             # === STEP 13: Calculate timing ===
             elapsed_ms = (time.time() - start_time) * 1000
             debug_metrics = self.metrics_collector.finalize_metrics()
+            
+            # Log cost to verify it's in debug_metrics
+            if debug_metrics.get("cost_breakdown"):
+                logger.info(f"✅ Cost in debug_metrics: ${debug_metrics['cost_breakdown']['total_cost']:.6f}")
+            else:
+                logger.warning("⚠️ No cost_breakdown in debug_metrics!")
             
             # === STEP 14: Build metadata ===
             requires_escalation = best_confidence < 0.7
