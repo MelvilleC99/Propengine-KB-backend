@@ -1,11 +1,13 @@
 """Context Analyzer - Analyzes conversation context and follow-up queries
 
-Extracted from orchestrator.py to keep logic modular.
+UPDATED: Using LLM instead of regex for followup detection
 """
 
-import re
 import logging
 from typing import Dict, Optional
+from langchain_openai import ChatOpenAI
+from langchain.schema import HumanMessage
+from src.config.settings import settings
 from src.agent.response import ResponseGenerator
 from src.memory.session_manager import SessionManager
 
@@ -20,7 +22,15 @@ class ContextAnalyzer:
         self.response_generator = ResponseGenerator()
         self.session_manager = SessionManager()
         
-        logger.info("✅ Context analyzer initialized")
+        # LLM for followup detection
+        self.llm = ChatOpenAI(
+            api_key=settings.OPENAI_API_KEY,
+            base_url=settings.OPENAI_BASE_URL,
+            model=settings.OPENAI_MODEL,
+            temperature=0.3
+        )
+        
+        logger.info("✅ Context analyzer initialized (LLM-powered)")
     
     async def try_answer_from_context(
         self, 
@@ -39,7 +49,7 @@ class ContextAnalyzer:
         Returns:
             Response dict if answerable from context, None otherwise
         """
-        if not self.is_followup_query(query, conversation_context):
+        if not await self.is_followup_query(query, conversation_context):
             return None
         
         logger.info("📝 Detected follow-up query, attempting to answer from context")
@@ -64,9 +74,9 @@ class ContextAnalyzer:
             logger.error(f"Error answering from context: {e}")
             return None
     
-    def is_followup_query(self, query: str, conversation_context: str) -> bool:
+    async def is_followup_query(self, query: str, conversation_context: str) -> bool:
         """
-        Detect if query is a follow-up question
+        Detect if query is a follow-up question using LLM
         
         Args:
             query: User's query
@@ -78,31 +88,46 @@ class ContextAnalyzer:
         if not conversation_context.strip():
             return False
         
-        query_lower = query.lower().strip()
-        query_words = query_lower.split()
+        # Use LLM to detect followup
+        prompt = f"""Previous conversation:
+{conversation_context}
+
+New user query: "{query}"
+
+Is this a follow-up question about the same topic as the conversation above?
+
+Consider these as follow-ups:
+- Requests for "more", "other", "additional" information
+- Questions about specific parts ("what about step 3?")
+- Clarifications ("why is that?")
+- Short questions that need context ("how?", "when?")
+
+Answer with just: yes or no"""
+
+        try:
+            response = await self.llm.ainvoke([HumanMessage(content=prompt)])
+            answer = response.content.strip().lower()
+            
+            is_followup = answer.startswith("yes")
+            logger.debug(f"Followup detection: query='{query[:50]}', result={is_followup}")
+            
+            return is_followup
+            
+        except Exception as e:
+            logger.error(f"Error in followup detection: {e}")
+            # Fallback to simple heuristic
+            return self._simple_followup_check(query, conversation_context)
+    
+    def _simple_followup_check(self, query: str, context: str) -> bool:
+        """Simple fallback for followup detection if LLM fails"""
+        query_lower = query.lower()
         
-        # Follow-up indicators (regex patterns)
-        followup_patterns = [
-            r'\bso\b.*\bonly\b',
-            r'\bso\b.*\bjust\b',
-            r'\bthat\s+(means|is)\b',
-            r'^\s*(only|just|so)\b',
-            r'\byes\b.*\?',
-            r'\band\b.*\?',
-            r'\bwhat about\b',
-            r'\bhow about\b',
-            r'\bwhy\s+(only|not|just)\b',
-        ]
+        # Simple keywords that usually indicate followup
+        followup_words = ['other', 'more', 'another', 'else', 'also', 'what about', 'how about']
         
-        for pattern in followup_patterns:
-            if re.search(pattern, query_lower):
-                logger.debug(f"Follow-up detected (pattern: {pattern})")
+        # Short questions with followup words
+        if len(query.split()) <= 8:
+            if any(word in query_lower for word in followup_words):
                 return True
-        
-        # Short queries with pronouns
-        if (len(query_words) <= 6 and 
-            any(pronoun in query_words for pronoun in ['it', 'that', 'this', 'they'])):
-            logger.debug("Follow-up detected (short query with pronoun)")
-            return True
         
         return False

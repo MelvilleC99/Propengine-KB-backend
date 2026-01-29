@@ -151,28 +151,41 @@ class Agent:
                     "classification_confidence": classification_confidence
                 }
             
-            # === STEP 6: Build structured query ===
-            structured_query = await self.query_builder.build(
-                query, 
-                query_type,
-                conversation_context
-            )
-            logger.info(
-                f"🔍 Query structured: '{query}' → "
-                f"enhanced='{structured_query.enhanced}', "
-                f"category={structured_query.category}"
-            )
-            
-            self.metrics_collector.record_query_enhancement(
-                enhanced_query=structured_query.enhanced,
-                category=structured_query.category,
-                tags=structured_query.tags,
-                intent=structured_query.user_intent
-            )
+            # === STEP 6: Build structured query (optional) ===
+            if settings.ENABLE_QUERY_ENHANCEMENT:
+                structured_query = await self.query_builder.build(
+                    query, 
+                    query_type,
+                    conversation_context
+                )
+                logger.info(
+                    f"🔍 Query enhanced: '{query}' → '{structured_query.enhanced}'"
+                )
+                search_query = structured_query.enhanced
+                
+                self.metrics_collector.record_query_enhancement(
+                    enhanced_query=structured_query.enhanced,
+                    category=structured_query.category,
+                    tags=structured_query.tags,
+                    intent=structured_query.user_intent
+                )
+            else:
+                # Use raw query directly
+                logger.info(f"🔍 Query enhancement DISABLED, using raw query: '{query}'")
+                from src.agent.query_processing import StructuredQuery
+                structured_query = StructuredQuery(
+                    original=query,      # Required: original query
+                    enhanced=query,      # Use same as original
+                    query_type=query_type,  # Required: from classification
+                    category="unknown",
+                    tags=[],
+                    user_intent="search"
+                )
+                search_query = query
             
             # === STEP 7: Search with fallback ===
             results, search_attempts = await self.search_strategy.search_with_fallback(
-                query=structured_query.enhanced,
+                query=search_query,  # Use either enhanced or raw query
                 query_type=query_type,
                 user_type_filter=user_type_filter,
                 parent_retrieval_handler=self.parent_retrieval

@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     # Query Settings
     MAX_SEARCH_RESULTS: int = 6  # Increased from 3 for better context
     MIN_CONFIDENCE_SCORE: float = 0.7
+    ENABLE_QUERY_ENHANCEMENT: bool = os.getenv("ENABLE_QUERY_ENHANCEMENT", "false").lower() == "true"  # Toggle query enhancement
     
     class Config:
         env_file = ".env"
