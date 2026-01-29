@@ -27,10 +27,10 @@ formatting_guide:
   
   multiple_options: |
     Use bullet points for choices:
-    "You can upload photos in two ways:
-    • Drag and drop directly into the listing editor
-    • Click 'Add Photos' and select files from your computer
-    Both methods support JPG and PNG files under 5MB."
+    "You can update your listing in two ways:
+    • Edit directly in the listing editor
+    • Use the bulk upload tool
+    Both methods save changes automatically."
   
   troubleshooting: |
     Structure as: issue → cause → solution:
