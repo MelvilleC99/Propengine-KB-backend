@@ -1,83 +1,39 @@
 """
 Query Metrics Collector - Tracks detailed query execution metrics
 
-Collects comprehensive metrics for:
+Collects comprehensive metrics using Pydantic models for:
 - Search execution (filters, documents scanned, latency)
 - Query classification and enhancement
 - Source retrieval and reranking
 - Response generation timing
+- Cost breakdown
 """
 
 import logging
 import time
 from typing import Dict, List, Optional
-from dataclasses import dataclass, field, asdict
-from datetime import datetime
+from ..models.query_metrics import QueryExecutionMetrics, SearchExecutionMetrics
+from ..models.cost_breakdown import CostBreakdown
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class SearchExecutionMetrics:
-    """Metrics for vector search execution"""
-    filters_applied: Dict[str, str] = field(default_factory=dict)
-    documents_scanned: int = 0  # Total docs in collection
-    documents_matched: int = 0  # After metadata filter
-    documents_returned: int = 0  # After similarity threshold
-    similarity_threshold: float = 0.7
-    embedding_time_ms: float = 0.0
-    search_time_ms: float = 0.0
-    rerank_time_ms: float = 0.0
-
-
-@dataclass
-class QueryExecutionMetrics:
-    """Complete query execution metrics"""
-    # Query metadata
-    query_text: str = ""
-    query_type: str = ""
-    classification_confidence: float = 0.0
-    
-    # Enhanced query
-    enhanced_query: str = ""
-    query_category: Optional[str] = None
-    query_intent: Optional[str] = None
-    query_tags: List[str] = field(default_factory=list)
-    
-    # Search execution
-    search_execution: SearchExecutionMetrics = field(default_factory=SearchExecutionMetrics)
-    search_attempts: List[Dict] = field(default_factory=list)
-    
-    # Results
-    sources_found: int = 0
-    sources_used: int = 0
-    best_confidence: float = 0.0
-    retrieved_chunks: List[Dict] = field(default_factory=list)
-    
-    # Timing
-    total_time_ms: float = 0.0
-    classification_time_ms: float = 0.0
-    query_building_time_ms: float = 0.0
-    response_generation_time_ms: float = 0.0
-    
-    # Escalation
-    escalated: bool = False
-    escalation_reason: str = "none"
-    escalation_type: str = "none"
-
-
 class QueryMetricsCollector:
-    """Collects and tracks query execution metrics"""
+    """Collects and tracks query execution metrics using Pydantic models"""
     
     def __init__(self):
         """Initialize metrics collector"""
         self.current_metrics: Optional[QueryExecutionMetrics] = None
         self._timers: Dict[str, float] = {}
-        logger.info("✅ QueryMetricsCollector initialized")
+        logger.info("✅ QueryMetricsCollector initialized (Pydantic)")
     
     def start_query(self, query_text: str) -> None:
         """Start tracking a new query"""
-        self.current_metrics = QueryExecutionMetrics(query_text=query_text)
+        self.current_metrics = QueryExecutionMetrics(
+            query_text=query_text,
+            query_type="",  # Will be set by classification
+            classification_confidence=0.0
+        )
         self._timers = {}
         self._start_timer("total")
         logger.debug(f"📊 Started metrics collection for query: {query_text[:50]}...")
@@ -171,15 +127,24 @@ class QueryMetricsCollector:
         if self.current_metrics:
             self.current_metrics.response_generation_time_ms = self._stop_timer("response_generation")
     
+    def record_cost_breakdown(self, cost_breakdown: CostBreakdown) -> None:
+        """Record cost breakdown from token tracker"""
+        if self.current_metrics:
+            self.current_metrics.cost_breakdown = cost_breakdown
+    
     def finalize_metrics(self) -> Dict:
-        """Finalize and return complete metrics"""
+        """Finalize and return complete metrics as dict"""
         if self.current_metrics:
             self.current_metrics.total_time_ms = self._stop_timer("total")
-            metrics_dict = asdict(self.current_metrics)
+            
+            # Use Pydantic's model_dump() for clean dict conversion
+            metrics_dict = self.current_metrics.model_dump()
+            
             logger.info(
                 f"📊 Query metrics: {self.current_metrics.total_time_ms:.0f}ms total, "
                 f"{self.current_metrics.sources_found} sources, "
-                f"confidence: {self.current_metrics.best_confidence:.2f}"
+                f"confidence: {self.current_metrics.best_confidence:.2f}, "
+                f"cost: ${self.current_metrics.cost_breakdown.total_cost:.6f}"
             )
             return metrics_dict
         return {}
@@ -199,15 +164,8 @@ class QueryMetricsCollector:
             "escalated": self.current_metrics.escalated,
             "escalation_reason": self.current_metrics.escalation_reason,
             "escalation_type": self.current_metrics.escalation_type,
-            "search_execution": {
-                "filters_applied": self.current_metrics.search_execution.filters_applied,
-                "documents_scanned": self.current_metrics.search_execution.documents_scanned,
-                "documents_matched": self.current_metrics.search_execution.documents_matched,
-                "documents_returned": self.current_metrics.search_execution.documents_returned,
-                "embedding_time_ms": self.current_metrics.search_execution.embedding_time_ms,
-                "search_time_ms": self.current_metrics.search_execution.search_time_ms,
-                "rerank_time_ms": self.current_metrics.search_execution.rerank_time_ms
-            },
+            "total_cost": self.current_metrics.cost_breakdown.total_cost,
+            "search_execution": self.current_metrics.search_execution.model_dump(),
             "search_attempts": self.current_metrics.search_attempts
         }
     

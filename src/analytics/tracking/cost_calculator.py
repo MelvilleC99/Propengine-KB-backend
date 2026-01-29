@@ -23,7 +23,8 @@ class CostCalculator:
     def _load_pricing(self) -> Dict:
         """Load pricing configuration from YAML"""
         try:
-            config_path = Path(__file__).parent.parent / "config" / "model_pricing.yaml"
+            # Path adjusted for new location
+            config_path = Path(__file__).parent.parent.parent / "config" / "model_pricing.yaml"
             
             with open(config_path, 'r') as f:
                 pricing = yaml.safe_load(f)

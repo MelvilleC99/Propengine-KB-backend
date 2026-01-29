@@ -9,7 +9,7 @@ from langchain_openai import ChatOpenAI
 from langchain.schema import HumanMessage
 from src.config.settings import settings
 from src.prompts.prompt_loader import prompt_loader
-from src.utils.token_tracker import token_tracker
+from src.analytics.tracking import token_tracker  # Updated import
 
 logger = logging.getLogger(__name__)
 

@@ -2,32 +2,17 @@
 Token Usage and Cost Tracking for LLM API Calls
 
 Tracks token consumption and calculates costs using YAML pricing.
+Updated to use Pydantic models.
 """
 
 import logging
 from typing import Dict, Optional, Any
 from datetime import datetime
-from dataclasses import dataclass, asdict
-from src.utils.cost_calculator import cost_calculator
+from ..models.token_usage import TokenUsage
+from ..models.cost_breakdown import CostBreakdown
+from .cost_calculator import cost_calculator
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class TokenUsage:
-    """Token usage data for a single LLM call"""
-    input_tokens: int
-    output_tokens: int
-    total_tokens: int
-    model: str
-    timestamp: str
-    cost: float
-    session_id: Optional[str] = None
-    operation: Optional[str] = None  # e.g., "response_generation", "query_enhancement"
-    
-    def to_dict(self) -> Dict:
-        """Convert to dictionary"""
-        return asdict(self)
 
 
 class TokenTracker:
@@ -35,7 +20,7 @@ class TokenTracker:
     Tracks token usage and calculates costs using YAML pricing
     
     Usage:
-        from src.utils.token_tracker import token_tracker
+        from src.analytics.tracking import token_tracker
         
         # After LLM call
         usage = token_tracker.track_chat_usage(
@@ -49,7 +34,7 @@ class TokenTracker:
     def __init__(self):
         """Initialize token tracker"""
         self.session_costs: Dict[str, Dict] = {}  # session_id -> cost breakdown
-        logger.info("✅ Token tracker initialized")
+        logger.info("✅ Token tracker initialized (Pydantic)")
     
     def track_chat_usage(
         self,
@@ -90,16 +75,17 @@ class TokenTracker:
                 model=model
             )
             
-            # Create usage record
-            usage_dict = {
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
-                "total_tokens": total_tokens,
-                "model": model,
-                "cost": cost_data["total_cost"],
-                "operation": operation,
-                "timestamp": datetime.now().isoformat()
-            }
+            # Create Pydantic usage record
+            usage = TokenUsage(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=total_tokens,
+                model=model,
+                timestamp=datetime.now().isoformat(),
+                cost=cost_data["total_cost"],
+                session_id=session_id,
+                operation=operation
+            )
             
             # Update session costs
             if session_id:
@@ -125,7 +111,7 @@ class TokenTracker:
                 f"Cost: ${cost_data['total_cost']:.6f}"
             )
             
-            return usage_dict
+            return usage.model_dump()
             
         except Exception as e:
             logger.error(f"❌ Error tracking token usage: {e}")
@@ -157,7 +143,7 @@ class TokenTracker:
                 model=model
             )
             
-            # Create usage record
+            # Create usage record (for embeddings, input=output=total)
             usage_dict = {
                 "tokens": tokens,
                 "model": model,
@@ -192,6 +178,49 @@ class TokenTracker:
         except Exception as e:
             logger.error(f"❌ Error tracking embedding usage: {e}")
             return None
+    
+    def get_cost_breakdown_for_session(self, session_id: str) -> CostBreakdown:
+        """
+        Get cost breakdown for a session as Pydantic model
+        
+        Args:
+            session_id: Session identifier
+            
+        Returns:
+            CostBreakdown Pydantic model
+        """
+        if session_id not in self.session_costs:
+            return CostBreakdown()
+        
+        costs = self.session_costs[session_id]
+        
+        # Extract costs by operation
+        embedding_cost = costs.get("embedding", {}).get("cost", 0.0)
+        query_building_cost = costs.get("query_enhancement", {}).get("cost", 0.0)
+        response_generation_cost = costs.get("response_generation", {}).get("cost", 0.0)
+        
+        # Extract tokens
+        embedding_tokens = costs.get("embedding", {}).get("tokens", 0)
+        query_input = costs.get("query_enhancement", {}).get("input_tokens", 0)
+        query_output = costs.get("query_enhancement", {}).get("output_tokens", 0)
+        response_input = costs.get("response_generation", {}).get("input_tokens", 0)
+        response_output = costs.get("response_generation", {}).get("output_tokens", 0)
+        
+        total_cost = embedding_cost + query_building_cost + response_generation_cost
+        total_tokens = embedding_tokens + query_input + query_output + response_input + response_output
+        
+        return CostBreakdown(
+            embedding_cost=embedding_cost,
+            query_building_cost=query_building_cost,
+            response_generation_cost=response_generation_cost,
+            total_cost=total_cost,
+            embedding_tokens=embedding_tokens,
+            query_building_input_tokens=query_input,
+            query_building_output_tokens=query_output,
+            response_input_tokens=response_input,
+            response_output_tokens=response_output,
+            total_tokens=total_tokens
+        )
     
     def _extract_usage_metadata(self, response: Any) -> Optional[Dict]:
         """Extract usage metadata from various response formats"""

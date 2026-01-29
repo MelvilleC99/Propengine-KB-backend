@@ -19,7 +19,7 @@ from src.agent.query_processing import QueryBuilder, StructuredQuery
 from src.agent.context import ContextBuilder, ContextAnalyzer
 from src.agent.search import SearchStrategy, ParentDocumentRetrieval
 from src.agent.response import ResponseGenerator
-from src.admin.query_metrics import QueryMetricsCollector
+from src.analytics import QueryMetricsCollector, token_tracker  # NEW: Updated import
 from src.utils.logging_helper import get_logger
 
 logger = get_logger(__name__)
@@ -250,16 +250,22 @@ class Agent:
                 retrieved_chunks=results
             )
             
-            # === STEP 11: Generate response ===
+            # === STEP 11: Generate response (with timing!) ===
+            self.metrics_collector._start_timer("response_generation")
             response = await self.response_generator.generate_response(
                 query, contexts, conversation_context
             )
+            self.metrics_collector.record_response_generation()  # Records timing
             
-            # === STEP 12: Calculate timing ===
+            # === STEP 12: Aggregate cost breakdown ===
+            cost_breakdown = token_tracker.get_cost_breakdown_for_session(session_id)
+            self.metrics_collector.record_cost_breakdown(cost_breakdown)
+            
+            # === STEP 13: Calculate timing ===
             elapsed_ms = (time.time() - start_time) * 1000
             debug_metrics = self.metrics_collector.finalize_metrics()
             
-            # === STEP 13: Build metadata ===
+            # === STEP 14: Build metadata ===
             requires_escalation = best_confidence < 0.7
             metadata = {
                 "query_type": query_type,

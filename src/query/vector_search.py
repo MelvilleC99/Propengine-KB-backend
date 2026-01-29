@@ -7,7 +7,7 @@ from langchain_astradb import AstraDBVectorStore
 from langchain.schema import Document
 from src.config.settings import settings
 from src.database.astra_client import astradb_connection
-from src.utils.token_tracker import token_tracker
+from src.analytics.tracking import token_tracker  # Updated import
 
 logger = logging.getLogger(__name__)
 

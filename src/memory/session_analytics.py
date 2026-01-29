@@ -6,7 +6,7 @@ Handles query buffering and batch analytics writing to Firebase
 from typing import Dict, List, Optional
 from datetime import datetime
 import logging
-from src.utils.token_tracker import token_tracker
+from src.analytics.tracking import token_tracker  # Updated import
 
 logger = logging.getLogger(__name__)
 
