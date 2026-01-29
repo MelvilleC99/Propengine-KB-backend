@@ -47,7 +47,7 @@ class ContextAnalyzer:
             session_id: Session identifier
             
         Returns:
-            Response dict if answerable from context, None otherwise
+            Response dict with full analytics if answerable from context, None otherwise
         """
         if not await self.is_followup_query(query, conversation_context):
             return None
@@ -55,20 +55,50 @@ class ContextAnalyzer:
         logger.info("📝 Detected follow-up query, attempting to answer from context")
         
         try:
+            import time
+            start_time = time.time()
+            
             response = await self.response_generator.generate_response(
                 query, 
                 [conversation_context],  # Use context as source
                 conversation_context
             )
             
-            await self.session_manager.add_message(session_id, "assistant", response)
+            elapsed_ms = (time.time() - start_time) * 1000
             
+            # Build proper metadata
+            metadata = {
+                "query_type": "followup",
+                "category": "conversation_context",
+                "confidence_score": 0.9,
+                "sources_found": 1,
+                "sources_used": ["Conversation Context"],
+                "response_time_ms": elapsed_ms,
+                "escalated": False,
+                "user_feedback": None
+            }
+            
+            await self.session_manager.add_message(session_id, "assistant", response, metadata)
+            
+            # Return complete response dict matching orchestrator format
             return {
                 "response": response,
                 "confidence": 0.9,
                 "sources": [{"title": "Conversation Context", "confidence": 0.9}],
                 "query_type": "followup",
-                "from_context": True
+                "classification_confidence": 1.0,  # We're certain it's a followup
+                "requires_escalation": False,
+                "search_attempts": [],  # No search needed
+                "enhanced_query": query,  # No enhancement
+                "query_metadata": {
+                    "category": "conversation_context",
+                    "intent": "followup",
+                    "tags": []
+                },
+                "debug_metrics": {
+                    "from_context": True,
+                    "response_time_ms": elapsed_ms
+                }
             }
         except Exception as e:
             logger.error(f"Error answering from context: {e}")
@@ -88,6 +118,11 @@ class ContextAnalyzer:
         if not conversation_context.strip():
             return False
         
+        # Check if context has meaningful content (not just errors)
+        if "encountered an error" in conversation_context.lower() and len(conversation_context) < 300:
+            logger.debug("Context contains only errors, treating as new query")
+            return False
+        
         # Use LLM to detect followup
         prompt = f"""Previous conversation:
 {conversation_context}
@@ -96,11 +131,16 @@ New user query: "{query}"
 
 Is this a follow-up question about the same topic as the conversation above?
 
+IMPORTANT:
+- If the conversation above only has errors or apologies, answer "no"
+- If this seems like a brand new question unrelated to conversation, answer "no"  
+- Only answer "yes" if the user is clearly continuing the same topic
+
 Consider these as follow-ups:
-- Requests for "more", "other", "additional" information
-- Questions about specific parts ("what about step 3?")
-- Clarifications ("why is that?")
-- Short questions that need context ("how?", "when?")
+- Requests for "more", "other", "additional" information about SAME topic
+- Questions about specific parts mentioned before ("what about step 3?")
+- Clarifications about something already discussed ("why is that?")
+- Short questions that reference the previous topic ("how?", "when?")
 
 Answer with just: yes or no"""
 
@@ -109,7 +149,7 @@ Answer with just: yes or no"""
             answer = response.content.strip().lower()
             
             is_followup = answer.startswith("yes")
-            logger.debug(f"Followup detection: query='{query[:50]}', result={is_followup}")
+            logger.debug(f"Followup detection: query='{query[:50]}', context_len={len(conversation_context)}, result={is_followup}")
             
             return is_followup
             
