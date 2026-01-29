@@ -159,7 +159,8 @@ def chunk_definition(entry: Dict[str, Any]) -> List[Chunk]:
             "category": entry.get("category"),
             "userType": entry.get("metadata", {}).get("userType", "internal"),
             "product": entry.get("metadata", {}).get("product", "property_engine"),
-            "tags": entry.get("metadata", {}).get("tags", [])
+            "tags": entry.get("metadata", {}).get("tags", []),
+            "title": title or "Untitled"  # Add title to metadata
         }
     )
     
@@ -243,7 +244,8 @@ def chunk_error(entry: Dict[str, Any]) -> List[Chunk]:
             "category": entry.get("category"),
             "userType": entry.get("metadata", {}).get("userType", "internal"),
             "product": entry.get("metadata", {}).get("product", "property_engine"),
-            "tags": entry.get("metadata", {}).get("tags", [])
+            "tags": entry.get("metadata", {}).get("tags", []),
+            "title": title or "Untitled"  # Add title to metadata
         }
     )
     
@@ -304,7 +306,8 @@ def chunk_how_to(entry: Dict[str, Any]) -> List[Chunk]:
                     "subcategory": entry.get("metadata", {}).get("subcategory"),
                     "userType": entry.get("metadata", {}).get("userType", "internal"),
                     "product": entry.get("metadata", {}).get("product", "property_engine"),
-                    "tags": entry.get("metadata", {}).get("tags", [])
+                    "tags": entry.get("metadata", {}).get("tags", []),
+                    "title": entry_title  # Add title to metadata
                 }
             )
             
@@ -419,7 +422,8 @@ def chunk_how_to(entry: Dict[str, Any]) -> List[Chunk]:
                 "userType": entry.get("metadata", {}).get("userType", "internal"),
                 "product": entry.get("metadata", {}).get("product", "property_engine"),
                 "tags": entry.get("metadata", {}).get("tags", []),
-                "section": section['name']
+                "section": section['name'],
+                "title": entry_title  # Add title to metadata
             },
             context=context
         )
@@ -477,7 +481,8 @@ def chunk_single(entry: Dict[str, Any]) -> List[Chunk]:
             "category": entry.get("category"),
             "userType": entry.get("metadata", {}).get("userType", "internal"),
             "product": entry.get("metadata", {}).get("product", "property_engine"),
-            "tags": entry.get("metadata", {}).get("tags", [])
+            "tags": entry.get("metadata", {}).get("tags", []),
+            "title": title or "Untitled"  # Add title to metadata
         }
     )
     

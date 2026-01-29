@@ -108,9 +108,9 @@ class VectorSearch:
                 embedding_time_ms = 0
                 logger.info("Using cached embeddings")
             
-            # Request more docs than needed for filtering
-            # This ensures we get enough results even after filtering
-            k_requested = k * 3
+            # Request exact number of documents
+            # No need to over-fetch - similarity threshold filters appropriately
+            k_requested = k
             
             # Perform similarity search using cached embeddings
             search_start = time.time()
