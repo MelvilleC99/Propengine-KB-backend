@@ -82,11 +82,14 @@ async def support_agent(request: SupportAgentRequest, http_request: Request):
         # Format sources cleanly for support staff
         clean_sources = []
         for source in result.get("sources", []):
+            # Handle both KB sources and context sources
+            metadata = source.get("metadata", {})
+            
             clean_sources.append({
-                "title": source["metadata"].get("title", "Untitled"),
+                "title": source.get("title") or metadata.get("title", "Untitled"),
                 "section": source.get("entry_type", "unknown"),
-                "confidence": source.get("similarity_score", 0.0),
-                "category": source["metadata"].get("category"),
+                "confidence": source.get("confidence") or source.get("similarity_score", 0.0),
+                "category": metadata.get("category"),
                 "content_preview": source.get("content_preview", ""),
                 "entry_type": source.get("entry_type"),
                 "user_type": source.get("user_type")

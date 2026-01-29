@@ -84,7 +84,17 @@ class ContextAnalyzer:
             return {
                 "response": response,
                 "confidence": 0.9,
-                "sources": [{"title": "Conversation Context", "confidence": 0.9}],
+                "sources": [{
+                    "title": "Conversation Context",
+                    "confidence": 0.9,
+                    "entry_type": "context",
+                    "user_type": "internal",
+                    "content_preview": conversation_context[:200] + "..." if len(conversation_context) > 200 else conversation_context,
+                    "metadata": {
+                        "title": "Conversation Context",
+                        "category": "conversation"
+                    }
+                }],
                 "query_type": "followup",
                 "classification_confidence": 1.0,  # We're certain it's a followup
                 "requires_escalation": False,
