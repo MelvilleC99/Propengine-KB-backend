@@ -7,7 +7,7 @@ import logging
 from typing import Dict, List, Optional, Tuple
 from src.config.settings import settings
 from src.query.vector_search import VectorSearch
-from src.admin.query_metrics import QueryMetricsCollector
+from src.analytics.collectors import QueryMetricsCollector  # Updated import
 
 logger = logging.getLogger(__name__)
 
