@@ -4,7 +4,7 @@ Generates LLM responses using retrieved context and conversation history.
 """
 
 import logging
-from typing import List
+from typing import List, Optional
 from langchain_openai import ChatOpenAI
 from langchain.schema import HumanMessage
 from src.config.settings import settings
