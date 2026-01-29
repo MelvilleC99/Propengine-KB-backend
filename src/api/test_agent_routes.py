@@ -44,7 +44,7 @@ class TestAgentResponse(BaseModel):
     enhanced_query: Optional[str] = Field(None, description="LLM-enhanced query")
     query_metadata: Optional[Dict] = Field(None, description="Query category, intent, and tags")
     
-    # Full debug metrics
+    # Full debug metrics (Dict works fine - Pydantic used internally)
     debug_metrics: Optional[Dict] = Field(None, description="Complete query execution metrics")
 
 
