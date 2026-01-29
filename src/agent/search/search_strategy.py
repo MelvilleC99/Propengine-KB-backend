@@ -33,7 +33,8 @@ class SearchStrategy:
         query: str,
         query_type: str,
         user_type_filter: Optional[str],
-        parent_retrieval_handler
+        parent_retrieval_handler,
+        session_id: Optional[str] = None  # NEW: For cost tracking
     ) -> Tuple[List[Dict], List[str]]:
         """
         Search with progressive fallback strategy
@@ -62,7 +63,8 @@ class SearchStrategy:
             query=query,
             entry_type=query_type,
             user_type=user_type_filter,
-            k=settings.MAX_SEARCH_RESULTS
+            k=settings.MAX_SEARCH_RESULTS,
+            session_id=session_id  # NOW PASSED
         )
         
         # Record search execution
@@ -95,7 +97,8 @@ class SearchStrategy:
             query=query,
             user_type=user_type_filter,
             k=settings.MAX_SEARCH_RESULTS,
-            query_embeddings=cached_embeddings
+            query_embeddings=cached_embeddings,
+            session_id=session_id  # NOW PASSED
         )
         
         # Expand parent documents for fallback results too
@@ -115,7 +118,8 @@ class SearchStrategy:
                 entry_type="error",
                 user_type=user_type_filter,
                 k=settings.MAX_SEARCH_RESULTS,
-                query_embeddings=cached_embeddings
+                query_embeddings=cached_embeddings,
+                session_id=session_id  # NOW PASSED
             )
         
         # Fallback 3: If definition contains "error", try error type
@@ -127,7 +131,8 @@ class SearchStrategy:
                 entry_type="error",
                 user_type=user_type_filter,
                 k=settings.MAX_SEARCH_RESULTS,
-                query_embeddings=cached_embeddings
+                query_embeddings=cached_embeddings,
+                session_id=session_id  # NOW PASSED
             )
         
         return results, search_attempts

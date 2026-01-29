@@ -180,7 +180,8 @@ class Agent:
                 query=search_query,  # Use either enhanced or raw query
                 query_type=query_type,
                 user_type_filter=user_type_filter,
-                parent_retrieval_handler=self.parent_retrieval
+                parent_retrieval_handler=self.parent_retrieval,
+                session_id=session_id  # NOW PASSED FOR COST TRACKING
             )
             
             # === STEP 8: No results - generate fallback ===
@@ -253,7 +254,8 @@ class Agent:
             # === STEP 11: Generate response (with timing!) ===
             self.metrics_collector._start_timer("response_generation")
             response = await self.response_generator.generate_response(
-                query, contexts, conversation_context
+                query, contexts, conversation_context,
+                session_id=session_id  # NOW PASSED FOR COST TRACKING
             )
             self.metrics_collector.record_response_generation()  # Records timing
             

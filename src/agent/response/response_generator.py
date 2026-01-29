@@ -36,7 +36,8 @@ class ResponseGenerator:
         self, 
         query: str, 
         contexts: List[str], 
-        conversation_context: str = ""
+        conversation_context: str = "",
+        session_id: Optional[str] = None  # NEW: For cost tracking
     ) -> str:
         """
         Generate response using LLM with retrieved context
@@ -75,7 +76,7 @@ class ResponseGenerator:
         token_tracker.track_chat_usage(
             response=response,
             model=settings.OPENAI_MODEL,
-            session_id=None,  # Will be added if session context available
+            session_id=session_id,  # NOW PASSED FROM CALLER
             operation="response_generation"
         )
         

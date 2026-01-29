@@ -40,7 +40,8 @@ class VectorSearch:
         k: int = 5,
         similarity_threshold: float = 0.7,
         additional_metadata_filter: Optional[Dict] = None,
-        query_embeddings: Optional[List[float]] = None  # New parameter for cached embeddings
+        query_embeddings: Optional[List[float]] = None,  # New parameter for cached embeddings
+        session_id: Optional[str] = None  # NEW: For cost tracking
     ) -> tuple[List[Dict], Optional[List[float]], Dict]:
         """
         Perform vector similarity search using reused connection
@@ -99,8 +100,8 @@ class VectorSearch:
                 token_tracker.track_embedding_usage(
                     tokens=embedding_tokens,
                     model=settings.EMBEDDING_MODEL,
-                    session_id=None,  # Will be added by caller if needed
-                    operation="vector_search_embedding"
+                    session_id=session_id,  # NOW PASSED FROM CALLER
+                    operation="embedding"  # Changed to match cost_breakdown key
                 )
                 
                 logger.info(f"Generated embeddings in {embedding_time_ms:.0f}ms ({embedding_tokens} tokens)")
