@@ -16,10 +16,10 @@ class CostBreakdown(BaseModel):
         ge=0.0,
         description="Cost for generating embeddings"
     )
-    query_building_cost: float = Field(
+    query_intelligence_cost: float = Field(
         default=0.0,
         ge=0.0,
-        description="Cost for query enhancement (if LLM used)"
+        description="Cost for query intelligence (follow-up detection + enhancement)"
     )
     response_generation_cost: float = Field(
         default=0.0,
@@ -31,22 +31,22 @@ class CostBreakdown(BaseModel):
         ge=0.0,
         description="Total cost for query"
     )
-    
+
     # Token counts
     embedding_tokens: int = Field(
         default=0,
         ge=0,
         description="Tokens used for embedding"
     )
-    query_building_input_tokens: int = Field(
+    query_intelligence_input_tokens: int = Field(
         default=0,
         ge=0,
-        description="Input tokens for query building"
+        description="Input tokens for query intelligence (includes conversation context)"
     )
-    query_building_output_tokens: int = Field(
+    query_intelligence_output_tokens: int = Field(
         default=0,
         ge=0,
-        description="Output tokens for query building"
+        description="Output tokens for query intelligence"
     )
     response_input_tokens: int = Field(
         default=0,
@@ -68,13 +68,15 @@ class CostBreakdown(BaseModel):
         "json_schema_extra": {
             "example": {
                 "embedding_cost": 0.0001,
-                "query_building_cost": 0.0,
+                "query_intelligence_cost": 0.0002,
                 "response_generation_cost": 0.0005,
-                "total_cost": 0.0006,
+                "total_cost": 0.0008,
                 "embedding_tokens": 100,
+                "query_intelligence_input_tokens": 500,
+                "query_intelligence_output_tokens": 100,
                 "response_input_tokens": 800,
                 "response_output_tokens": 50,
-                "total_tokens": 950
+                "total_tokens": 1550
             }
         }
     }

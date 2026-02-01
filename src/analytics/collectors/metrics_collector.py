@@ -44,21 +44,21 @@ class QueryMetricsCollector:
             self.current_metrics.query_type = query_type
             self.current_metrics.classification_confidence = confidence
             self.current_metrics.classification_time_ms = self._stop_timer("classification")
-    
-    def record_query_enhancement(
-        self, 
+
+    def record_query_intelligence(
+        self,
         enhanced_query: str,
         category: Optional[str] = None,
         intent: Optional[str] = None,
         tags: Optional[List[str]] = None
     ) -> None:
-        """Record query enhancement results"""
+        """Record query intelligence results (follow-up detection + enhancement)"""
         if self.current_metrics:
             self.current_metrics.enhanced_query = enhanced_query
             self.current_metrics.query_category = category
             self.current_metrics.query_intent = intent
             self.current_metrics.query_tags = tags or []
-            self.current_metrics.query_building_time_ms = self._stop_timer("query_building")
+            self.current_metrics.query_intelligence_time_ms = self._stop_timer("query_intelligence")
     
     def record_search_execution(
         self,
@@ -136,16 +136,36 @@ class QueryMetricsCollector:
         """Finalize and return complete metrics as dict"""
         if self.current_metrics:
             self.current_metrics.total_time_ms = self._stop_timer("total")
-            
+
             # Use Pydantic's model_dump() for clean dict conversion
             metrics_dict = self.current_metrics.model_dump()
-            
+
+            # ENHANCED: Log detailed breakdown
             logger.info(
-                f"📊 Query metrics: {self.current_metrics.total_time_ms:.0f}ms total, "
-                f"{self.current_metrics.sources_found} sources, "
-                f"confidence: {self.current_metrics.best_confidence:.2f}, "
-                f"cost: ${self.current_metrics.cost_breakdown.total_cost:.6f}"
+                f"📊 TIMING BREAKDOWN:\n"
+                f"  Classification: {self.current_metrics.classification_time_ms:.0f}ms\n"
+                f"  Query Intelligence: {self.current_metrics.query_intelligence_time_ms:.0f}ms\n"
+                f"  Embedding: {self.current_metrics.search_execution.embedding_time_ms:.0f}ms\n"
+                f"  Search: {self.current_metrics.search_execution.search_time_ms:.0f}ms\n"
+                f"  Reranking: {self.current_metrics.search_execution.rerank_time_ms:.0f}ms\n"
+                f"  Response Generation: {self.current_metrics.response_generation_time_ms:.0f}ms\n"
+                f"  TOTAL: {self.current_metrics.total_time_ms:.0f}ms"
             )
+
+            logger.info(
+                f"💰 COST BREAKDOWN:\n"
+                f"  Query Intelligence: ${self.current_metrics.cost_breakdown.query_intelligence_cost:.6f} "
+                f"({self.current_metrics.cost_breakdown.query_intelligence_input_tokens}in + "
+                f"{self.current_metrics.cost_breakdown.query_intelligence_output_tokens}out)\n"
+                f"  Response Generation: ${self.current_metrics.cost_breakdown.response_generation_cost:.6f} "
+                f"({self.current_metrics.cost_breakdown.response_input_tokens}in + "
+                f"{self.current_metrics.cost_breakdown.response_output_tokens}out)\n"
+                f"  Embedding: ${self.current_metrics.cost_breakdown.embedding_cost:.6f} "
+                f"({self.current_metrics.cost_breakdown.embedding_tokens}tokens)\n"
+                f"  TOTAL: ${self.current_metrics.cost_breakdown.total_cost:.6f} "
+                f"({self.current_metrics.cost_breakdown.total_tokens} tokens)"
+            )
+
             return metrics_dict
         return {}
     

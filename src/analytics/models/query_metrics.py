@@ -142,10 +142,10 @@ class QueryExecutionMetrics(BaseModel):
         ge=0.0,
         description="Query classification time (ms)"
     )
-    query_building_time_ms: float = Field(
+    query_intelligence_time_ms: float = Field(
         default=0.0,
         ge=0.0,
-        description="Query enhancement time (ms)"
+        description="Query intelligence time (ms) - follow-up detection + enhancement"
     )
     response_generation_time_ms: float = Field(
         default=0.0,

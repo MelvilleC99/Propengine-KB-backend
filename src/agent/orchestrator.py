@@ -1,7 +1,8 @@
 """Agent Orchestrator - Coordinates query processing pipeline
 
-REFACTORED: Logic extracted into separate modules for better maintainability.
-- Context analysis → context/context_analyzer.py
+OPTIMIZED: Single query intelligence call for follow-up detection + enhancement
+- Query intelligence → query_processing/query_intelligence.py (single LLM call)
+- Context responder → context/context_responder.py
 - Search strategy → search/search_strategy.py
 - Parent retrieval → search/parent_retrieval.py
 """
@@ -15,11 +16,12 @@ from src.query.reranker import SearchReranker
 from src.memory.session_manager import SessionManager
 from src.memory.kb_analytics import KBAnalyticsTracker
 from src.agent.classification import QueryClassifier
-from src.agent.query_processing import QueryBuilder, StructuredQuery
-from src.agent.context import ContextBuilder, ContextAnalyzer
+from src.agent.query_processing.query_intelligence import QueryIntelligence
+from src.agent.context import ContextBuilder
+from src.agent.context.context_responder import ContextResponder
 from src.agent.search import SearchStrategy, ParentDocumentRetrieval
 from src.agent.response import ResponseGenerator
-from src.analytics import QueryMetricsCollector, token_tracker  # NEW: Updated import
+from src.analytics import QueryMetricsCollector, token_tracker
 from src.utils.logging_helper import get_logger
 
 logger = get_logger(__name__)
@@ -30,13 +32,13 @@ class Agent:
     
     def __init__(self):
         """Initialize orchestrator with all required components"""
-        # Classification & Query Building
+        # Classification & Query Intelligence
         self.classifier = QueryClassifier()
-        self.query_builder = QueryBuilder()
-        
+        self.query_intelligence = QueryIntelligence()
+
         # Metrics Collection
         self.metrics_collector = QueryMetricsCollector()
-        
+
         # Search & Ranking
         self.vector_search = VectorSearch()
         self.reranker = SearchReranker()
@@ -45,17 +47,17 @@ class Agent:
             self.vector_search,
             self.metrics_collector
         )
-        
+
         # Context & Response
         self.context_builder = ContextBuilder()
-        self.context_analyzer = ContextAnalyzer()
+        self.context_responder = ContextResponder()
         self.response_generator = ResponseGenerator()
-        
+
         # Memory & Analytics
         self.session_manager = SessionManager()
         self.kb_analytics = KBAnalyticsTracker()
-        
-        logger.info("✅ Agent orchestrator initialized (refactored modular architecture)")
+
+        logger.info("✅ Agent orchestrator initialized (optimized with query intelligence)")
     
     async def process_query(
         self, 
@@ -112,16 +114,17 @@ class Agent:
                 logger.log_context_empty(session_id, "No messages found in Redis/Firebase")
             else:
                 logger.log_context_preview(session_id, conversation_context)
-            
+
             # === STEP 3: Classify query ===
+            self.metrics_collector._start_timer("classification")
             query_type, classification_confidence = self.classifier.classify(query)
             logger.log_query_classification(query_type, classification_confidence)
             self.metrics_collector.record_classification(query_type, classification_confidence)
-            
-            # === STEP 5: Handle greetings (no search needed) ===
+
+            # === STEP 4: Handle greetings (no search needed) ===
             if query_type == "greeting":
                 response = await self.response_generator.generate_greeting_response()
-                
+
                 elapsed_ms = (time.time() - start_time) * 1000
                 metadata = {
                     "query_type": query_type,
@@ -132,9 +135,9 @@ class Agent:
                     "response_time_ms": elapsed_ms,
                     "escalated": False
                 }
-                
+
                 await self.session_manager.add_message(session_id, "assistant", response, metadata)
-                
+
                 return {
                     "response": response,
                     "confidence": 1.0,
@@ -142,39 +145,92 @@ class Agent:
                     "query_type": query_type,
                     "classification_confidence": classification_confidence
                 }
-            
-            # === STEP 6: Build structured query (optional) ===
-            if settings.ENABLE_QUERY_ENHANCEMENT:
-                structured_query = await self.query_builder.build(
-                    query, 
-                    query_type,
-                    conversation_context
+
+            # === STEP 5: Query Intelligence (single LLM call) ===
+            # Extract related docs from conversation history
+            available_related_docs = []
+            if conversation_context:
+                recent_messages = self.session_manager.context_cache.get_messages(session_id, limit=5)
+                for msg in recent_messages:
+                    if msg.get("role") == "assistant":
+                        msg_metadata = msg.get("metadata", {})
+                        if msg_metadata.get("related_documents"):
+                            available_related_docs.extend(msg_metadata.get("related_documents", []))
+                available_related_docs = list(dict.fromkeys(available_related_docs))  # Remove duplicates
+
+            # Single smart analysis (replaces follow-up detection + query enhancement)
+            self.metrics_collector._start_timer("query_intelligence")
+            analysis = await self.query_intelligence.analyze(
+                query=query,
+                query_type=query_type,
+                conversation_context=conversation_context,
+                available_related_docs=available_related_docs,
+                session_id=session_id
+            )
+
+            # Record metrics
+            self.metrics_collector.record_query_intelligence(
+                enhanced_query=analysis.structured_query.enhanced,
+                category=analysis.structured_query.category,
+                tags=analysis.structured_query.tags,
+                intent=analysis.structured_query.user_intent
+            )
+
+            logger.info(
+                f"🧠 Query intelligence: routing={analysis.routing}, "
+                f"is_followup={analysis.is_followup}, "
+                f"enhanced='{analysis.structured_query.enhanced}'"
+            )
+
+            # === STEP 6: Route based on analysis ===
+            # Option 1: Answer from conversation context
+            if analysis.routing == "answer_from_context":
+                logger.info("✅ Answering from conversation context")
+                response_dict = await self.context_responder.answer_from_conversation(
+                    query=query,
+                    conversation_context=conversation_context,
+                    session_id=session_id,
+                    metrics_collector=self.metrics_collector
                 )
-                logger.info(
-                    f"🔍 Query enhanced: '{query}' → '{structured_query.enhanced}'"
-                )
-                search_query = structured_query.enhanced
-                
-                self.metrics_collector.record_query_enhancement(
-                    enhanced_query=structured_query.enhanced,
-                    category=structured_query.category,
-                    tags=structured_query.tags,
-                    intent=structured_query.user_intent
-                )
-            else:
-                # Use raw query directly
-                logger.info(f"🔍 Query enhancement DISABLED, using raw query: '{query}'")
-                from src.agent.query_processing import StructuredQuery
-                structured_query = StructuredQuery(
-                    original=query,      # Required: original query
-                    enhanced=query,      # Use same as original
-                    query_type=query_type,  # Required: from classification
-                    category="unknown",
-                    tags=[],
-                    user_intent="search"
-                )
-                search_query = query
-            
+
+                # Add full debug metrics and context debug
+                cost_breakdown = token_tracker.get_cost_breakdown_for_session(session_id)
+                self.metrics_collector.record_cost_breakdown(cost_breakdown)
+
+                elapsed_ms = (time.time() - start_time) * 1000
+                debug_metrics = self.metrics_collector.finalize_metrics()
+
+                # Build context debug
+                recent_messages = self.session_manager.context_cache.get_messages(session_id, limit=5)
+                recent_sources = []
+                all_related_docs = []
+                for msg in recent_messages:
+                    if msg.get("role") == "assistant":
+                        msg_metadata = msg.get("metadata", {})
+                        if msg_metadata.get("sources_used"):
+                            recent_sources.extend(msg_metadata.get("sources_used", []))
+                        if msg_metadata.get("related_documents"):
+                            all_related_docs.extend(msg_metadata.get("related_documents", []))
+
+                context_debug = {
+                    "conversation_context": conversation_context,
+                    "message_count": message_count,
+                    "has_summary": has_summary,
+                    "context_length": context_length,
+                    "recent_sources_used": list(dict.fromkeys(recent_sources))[:5],
+                    "available_related_documents": list(dict.fromkeys(all_related_docs))[:10]
+                }
+
+                # Add to response
+                response_dict["debug_metrics"] = debug_metrics
+                response_dict["context_debug"] = context_debug
+
+                return response_dict
+
+            # Option 2: Targeted KB search or full RAG
+            structured_query = analysis.structured_query
+            search_query = structured_query.enhanced
+
             # === STEP 7: Search with fallback ===
             results, search_attempts = await self.search_strategy.search_with_fallback(
                 query=search_query,  # Use either enhanced or raw query
@@ -183,20 +239,30 @@ class Agent:
                 parent_retrieval_handler=self.parent_retrieval,
                 session_id=session_id  # NOW PASSED FOR COST TRACKING
             )
-            
+
             # === STEP 8: No results - generate fallback ===
             if not results:
                 logger.warning(f"❌ No results found for query: {query}")
-                
+
                 self.metrics_collector.record_results(
                     sources_found=0,
                     sources_used=0,
                     best_confidence=0.0,
                     retrieved_chunks=[]
                 )
-                
-                fallback_response = await self.response_generator.generate_fallback_response(query)
-                
+
+                # Generate fallback response with timing and token tracking
+                self.metrics_collector._start_timer("response_generation")
+                fallback_response = await self.response_generator.generate_fallback_response(
+                    query=query,
+                    session_id=session_id
+                )
+                self.metrics_collector.record_response_generation()
+
+                # Get cost breakdown before finalizing
+                cost_breakdown = token_tracker.get_cost_breakdown_for_session(session_id)
+                self.metrics_collector.record_cost_breakdown(cost_breakdown)
+
                 elapsed_ms = (time.time() - start_time) * 1000
                 debug_metrics = self.metrics_collector.finalize_metrics()
                 
@@ -255,7 +321,8 @@ class Agent:
             self.metrics_collector._start_timer("response_generation")
             response = await self.response_generator.generate_response(
                 query, contexts, conversation_context,
-                session_id=session_id  # NOW PASSED FOR COST TRACKING
+                session_id=session_id,  # For cost tracking
+                search_results=results  # NEW: Pass results for source attribution
             )
             self.metrics_collector.record_response_generation()  # Records timing
             
@@ -276,6 +343,17 @@ class Agent:
             
             # === STEP 14: Build metadata ===
             requires_escalation = best_confidence < 0.7
+
+            # Extract related documents from sources for follow-up awareness
+            related_documents = []
+            for source in sources:
+                source_metadata = source.get("metadata", {})
+                related_docs = source_metadata.get("related_documents", [])
+                if related_docs:
+                    related_documents.extend(related_docs)
+            # Remove duplicates while preserving order
+            related_documents = list(dict.fromkeys(related_documents))
+
             metadata = {
                 "query_type": query_type,
                 "category": structured_query.category,
@@ -283,6 +361,7 @@ class Agent:
                 "confidence_score": best_confidence,
                 "sources_found": len(results),
                 "sources_used": [s.get("title") for s in sources],
+                "related_documents": related_documents,  # NEW: Store for follow-up detection
                 "response_time_ms": elapsed_ms,
                 "escalated": requires_escalation,
                 "user_feedback": None
@@ -295,7 +374,28 @@ class Agent:
             self.kb_analytics.track_kb_usage(sources, query, best_confidence, session_id)
             
             logger.info(f"✅ Response generated (confidence: {best_confidence:.2f}, escalation: {requires_escalation}, time: {elapsed_ms:.0f}ms)")
-            
+
+            # === STEP 16: Build context debug info ===
+            recent_messages = self.session_manager.context_cache.get_messages(session_id, limit=5)
+            recent_sources = []
+            all_related_docs = []
+            for msg in recent_messages:
+                if msg.get("role") == "assistant":
+                    msg_metadata = msg.get("metadata", {})
+                    if msg_metadata.get("sources_used"):
+                        recent_sources.extend(msg_metadata.get("sources_used", []))
+                    if msg_metadata.get("related_documents"):
+                        all_related_docs.extend(msg_metadata.get("related_documents", []))
+
+            context_debug = {
+                "conversation_context": conversation_context,
+                "message_count": message_count,
+                "has_summary": has_summary,
+                "context_length": context_length,
+                "recent_sources_used": list(dict.fromkeys(recent_sources))[:5],  # Unique, limit 5
+                "available_related_documents": list(dict.fromkeys(all_related_docs))[:10]  # Unique, limit 10
+            }
+
             return {
                 "response": response,
                 "confidence": best_confidence,
@@ -310,7 +410,8 @@ class Agent:
                     "intent": structured_query.user_intent,
                     "tags": structured_query.tags
                 },
-                "debug_metrics": debug_metrics
+                "debug_metrics": debug_metrics,
+                "context_debug": context_debug  # NEW: Context debugging info
             }
             
         except Exception as e:

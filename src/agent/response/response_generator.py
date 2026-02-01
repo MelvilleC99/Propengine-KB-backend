@@ -4,7 +4,7 @@ Generates LLM responses using retrieved context and conversation history.
 """
 
 import logging
-from typing import List, Optional
+from typing import List, Optional, Dict
 from langchain_openai import ChatOpenAI
 from langchain.schema import HumanMessage
 from src.config.settings import settings
@@ -33,31 +33,52 @@ class ResponseGenerator:
         logger.info("✅ ResponseGenerator initialized with YAML prompts")
     
     async def generate_response(
-        self, 
-        query: str, 
-        contexts: List[str], 
+        self,
+        query: str,
+        contexts: List[str],
         conversation_context: str = "",
-        session_id: Optional[str] = None  # NEW: For cost tracking
+        session_id: Optional[str] = None,  # For cost tracking
+        search_results: Optional[List[Dict]] = None  # NEW: For source attribution
     ) -> str:
         """
         Generate response using LLM with retrieved context
-        
+
         Args:
             query: User's query
-            contexts: List of context strings from search results
+            contexts: List of context strings from search results (DEPRECATED - use search_results)
             conversation_context: Previous conversation history
-            
+            session_id: Session ID for cost tracking
+            search_results: Raw search results with metadata for source attribution
+
         Returns:
             Generated response string
         """
-        # Use top 3 contexts for response generation
-        context_text = "\n\n".join(contexts[:3]) if contexts else "No relevant information found."
-        
-        # DEBUG: Log what KB context we're sending to LLM
-        logger.info(f"🔍 KB Context being sent to LLM ({len(contexts)} contexts):")
-        for i, ctx in enumerate(contexts[:3], 1):
-            logger.info(f"  Context {i}: {ctx[:200]}{'...' if len(ctx) > 200 else ''}")
-        
+        # NEW: Use formatted context with source attribution if search_results provided
+        if search_results is not None:
+            from src.agent.context import ContextBuilder
+            if search_results:  # If not empty
+                context_text = ContextBuilder.format_contexts_with_sources(search_results, max_contexts=3)
+
+                # DEBUG: Log formatted KB context with sources
+                logger.info(f"🔍 KB Context with source attribution ({len(search_results)} results):")
+                for i, r in enumerate(search_results[:3], 1):
+                    metadata = r.get("metadata", {})
+                    title = (
+                        metadata.get("parent_title") or
+                        metadata.get("title") or
+                        "Untitled"
+                    )
+                    confidence = r.get("similarity_score", 0.0)
+                    logger.info(f"  Source {i}: {title} (confidence: {confidence:.2f})")
+            else:
+                # Empty search results (e.g., answering from context)
+                context_text = "\n\n".join(contexts[:3]) if contexts else "No relevant information found."
+                logger.debug("📝 No search results (context-based response)")
+        else:
+            # FALLBACK: Old format (plain contexts without attribution)
+            context_text = "\n\n".join(contexts[:3]) if contexts else "No relevant information found."
+            logger.warning("⚠️ Using legacy context format without source attribution")
+
         # Build full prompt (system + response generation)
         full_prompt = (
             self.system_prompt + "\n\n" +
@@ -67,30 +88,35 @@ class ResponseGenerator:
                 query=query
             )
         )
-        
+
         logger.debug(f"Generating response for: {query[:50]}...")
-        
+
         response = await self.llm.ainvoke([HumanMessage(content=full_prompt)])
-        
+
         # Track token usage and cost
         token_tracker.track_chat_usage(
             response=response,
             model=settings.OPENAI_MODEL,
-            session_id=session_id,  # NOW PASSED FROM CALLER
+            session_id=session_id,
             operation="response_generation"
         )
-        
+
         logger.info(f"✅ Response generated ({len(response.content)} chars)")
-        
+
         return response.content
     
-    async def generate_fallback_response(self, query: str) -> str:
+    async def generate_fallback_response(
+        self,
+        query: str,
+        session_id: Optional[str] = None
+    ) -> str:
         """
         Generate response when no knowledge base results found
-        
+
         Args:
             query: User's query
-            
+            session_id: Session ID for token tracking
+
         Returns:
             Fallback response string
         """
@@ -103,13 +129,22 @@ class ResponseGenerator:
                 query=query
             )
         )
-        
+
         logger.debug(f"Generating fallback response for: {query[:50]}...")
-        
+
         response = await self.llm.ainvoke([HumanMessage(content=full_prompt)])
-        
+
+        # Track tokens for fallback response
+        if session_id:
+            token_tracker.track_chat_usage(
+                response=response,
+                model=settings.OPENAI_MODEL,
+                session_id=session_id,
+                operation="response_generation"
+            )
+
         logger.info(f"✅ Fallback response generated")
-        
+
         return response.content
     
     async def generate_greeting_response(self) -> str:
