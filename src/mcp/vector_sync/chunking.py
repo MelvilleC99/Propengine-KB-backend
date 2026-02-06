@@ -160,7 +160,8 @@ def chunk_definition(entry: Dict[str, Any]) -> List[Chunk]:
             "userType": entry.get("metadata", {}).get("userType", "internal"),
             "product": entry.get("metadata", {}).get("product", "property_engine"),
             "tags": entry.get("metadata", {}).get("tags", []),
-            "title": title or "Untitled"  # Add title to metadata
+            "title": title or "Untitled",  # Add title to metadata
+            "related_documents": entry.get("metadata", {}).get("related_documents", [])  # Add related docs
         }
     )
     
@@ -245,7 +246,8 @@ def chunk_error(entry: Dict[str, Any]) -> List[Chunk]:
             "userType": entry.get("metadata", {}).get("userType", "internal"),
             "product": entry.get("metadata", {}).get("product", "property_engine"),
             "tags": entry.get("metadata", {}).get("tags", []),
-            "title": title or "Untitled"  # Add title to metadata
+            "title": title or "Untitled",  # Add title to metadata
+            "related_documents": entry.get("metadata", {}).get("related_documents", [])  # Add related docs
         }
     )
     
@@ -308,7 +310,8 @@ def chunk_how_to(entry: Dict[str, Any]) -> List[Chunk]:
                     "userType": entry.get("metadata", {}).get("userType", "internal"),
                     "product": entry.get("metadata", {}).get("product", "property_engine"),
                     "tags": entry.get("metadata", {}).get("tags", []),
-                    "title": entry_title  # Add title to metadata
+                    "title": entry_title,  # Add title to metadata
+                    "related_documents": entry.get("metadata", {}).get("related_documents", [])  # Add related docs
                 }
             )
             
@@ -424,7 +427,8 @@ def chunk_how_to(entry: Dict[str, Any]) -> List[Chunk]:
                 "product": entry.get("metadata", {}).get("product", "property_engine"),
                 "tags": entry.get("metadata", {}).get("tags", []),
                 "section": section['name'],
-                "title": entry_title  # Add title to metadata
+                "title": entry_title,  # Add title to metadata
+                "related_documents": entry.get("metadata", {}).get("related_documents", [])  # Add related docs
             },
             context=context
         )
@@ -483,7 +487,8 @@ def chunk_single(entry: Dict[str, Any]) -> List[Chunk]:
             "userType": entry.get("metadata", {}).get("userType", "internal"),
             "product": entry.get("metadata", {}).get("product", "property_engine"),
             "tags": entry.get("metadata", {}).get("tags", []),
-            "title": title or "Untitled"  # Add title to metadata
+            "title": title or "Untitled",  # Add title to metadata
+            "related_documents": entry.get("metadata", {}).get("related_documents", [])  # Add related docs
         }
     )
     

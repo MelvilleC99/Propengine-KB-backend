@@ -16,32 +16,26 @@ class RedisContextCache:
     """
     Fast Redis-based cache for conversation context
     Stores last 8 messages per session with 2-hour TTL
+
+    Uses shared Redis connection from redis_client.py to avoid connection leaks
     """
-    
+
     def __init__(self):
         """Initialize Redis connection with fallback to in-memory storage"""
         self.redis_client = None
         self.memory_fallback = {}  # Fallback if Redis fails
         self.max_messages_per_session = 8
         self.session_ttl = 7200  # 2 hours in seconds
-        
+
         try:
-            # Connect to Redis Cloud using environment variables
-            self.redis_client = redis.Redis(
-                host=settings.REDIS_HOST,
-                port=settings.REDIS_PORT,
-                password=settings.REDIS_PASSWORD,
-                db=settings.REDIS_DB,
-                decode_responses=True,  # Auto-decode strings
-                socket_timeout=5,
-                socket_connect_timeout=5,
-                retry_on_timeout=True
-            )
-            
+            # Use shared Redis connection to avoid hitting max client limit
+            from src.database.redis_client import get_redis_client
+            self.redis_client = get_redis_client()
+
             # Test connection
             self.redis_client.ping()
             logger.info("✅ Redis Context Cache connected successfully")
-            
+
         except Exception as e:
             logger.error(f"❌ Redis connection failed: {e}")
             logger.warning("⚠️ Falling back to in-memory cache")

@@ -43,9 +43,12 @@ class TestAgentResponse(BaseModel):
     # Query analytics fields
     enhanced_query: Optional[str] = Field(None, description="LLM-enhanced query")
     query_metadata: Optional[Dict] = Field(None, description="Query category, intent, and tags")
-    
+
     # Full debug metrics (Dict works fine - Pydantic used internally)
     debug_metrics: Optional[Dict] = Field(None, description="Complete query execution metrics")
+
+    # Context debugging (NEW)
+    context_debug: Optional[Dict] = Field(None, description="Conversation context and memory state")
 
 
 @router.post("/", response_model=TestAgentResponse)
@@ -144,7 +147,9 @@ async def test_agent(request: TestAgentRequest, http_request: Request):
             enhanced_query=result.get("enhanced_query"),
             query_metadata=result.get("query_metadata"),
             # Full debug metrics
-            debug_metrics=result.get("debug_metrics")
+            debug_metrics=result.get("debug_metrics"),
+            # Context debugging
+            context_debug=result.get("context_debug")
         )
         
     except HTTPException:
@@ -208,6 +213,6 @@ async def get_chat_history(session_id: str, limit: int = 10):
     session = session_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found or expired")
-    
+
     history = session_manager.get_history(session_id, limit)
     return {"session_id": session_id, "history": history, "total_messages": len(session["messages"])}

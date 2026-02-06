@@ -25,7 +25,14 @@ class QueryClassifier:
             r"\bissue\b",
             r"\bproblem\b",
             r"\bfail(ed|ing|ure)?\b",
-            r"\bnot work(ing)?\b"
+            r"\bnot work(ing)?\b",
+            # Troubleshooting patterns - common support queries
+            r"\bcan'?t\s+(see|find|view|access|open|load|sync|log\s*in)\b",
+            r"\b(not\s+showing|not\s+visible|not\s+appearing|not\s+loading|not\s+syncing)\b",
+            r"\b(missing|disappeared|gone|lost)\b",
+            r"\bwhy\s+(is|are|can'?t|won'?t|doesn'?t|isn'?t|don'?t)\b",
+            r"\bunable\s+to\b",
+            r"\b(stuck|frozen|blank|empty)\b"
         ],
         "definition": [
             r"\bwhat (is|are|does|do)\b(?!.*\berror\b)",
@@ -73,6 +80,6 @@ class QueryClassifier:
                     logger.debug(f"Query classified as '{query_type}' (pattern: '{pattern}')")
                     return query_type, 0.8
         
-        # Default to definition for unknown queries
-        logger.debug(f"Query defaulted to 'definition' (no pattern match)")
-        return "definition", 0.5
+        # Default to general for unknown queries (no entryType filter applied)
+        logger.debug(f"Query defaulted to 'general' (no pattern match)")
+        return "general", 0.5

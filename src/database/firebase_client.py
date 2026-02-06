@@ -1,7 +1,7 @@
 """Firebase Admin SDK initialization and connection management"""
 
 import firebase_admin
-from firebase_admin import credentials, firestore
+from firebase_admin import credentials, firestore, auth
 from typing import Optional
 import logging
 from src.config.settings import settings
@@ -74,6 +74,21 @@ def get_firestore_client() -> firestore.Client:
             "Firebase not initialized. Call initialize_firebase() at startup."
         )
     return _firestore_client
+
+
+def get_firebase_auth():
+    """
+    Get Firebase Auth instance for user management.
+    Must call initialize_firebase() first at startup.
+
+    Returns:
+        Firebase Auth module
+    """
+    if not firebase_admin._apps:
+        raise RuntimeError(
+            "Firebase not initialized. Call initialize_firebase() at startup."
+        )
+    return auth
 
 
 async def test_firebase_connection() -> bool:

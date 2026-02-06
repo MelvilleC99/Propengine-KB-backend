@@ -38,7 +38,7 @@ class VectorSearch:
         entry_type: Optional[str] = None,
         user_type: Optional[str] = None, 
         k: int = 5,
-        similarity_threshold: float = 0.7,
+        similarity_threshold: float = 0.5,  # Low threshold for retrieval - reranker handles precision
         additional_metadata_filter: Optional[Dict] = None,
         query_embeddings: Optional[List[float]] = None,  # New parameter for cached embeddings
         session_id: Optional[str] = None  # NEW: For cost tracking

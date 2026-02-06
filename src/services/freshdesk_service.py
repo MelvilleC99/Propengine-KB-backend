@@ -16,23 +16,23 @@ class FreshdeskService:
     - FRESHDESK_DOMAIN
     - FRESHDESK_API_KEY
     """
-    
-    # Default responder ID from original frontend code
-    DEFAULT_RESPONDER_ID = 203005309699
-    
+
     def __init__(self):
         self.domain = getattr(settings, 'FRESHDESK_DOMAIN', None)
         self.api_key = getattr(settings, 'FRESHDESK_API_KEY', None)
-        
+        self.responder_id = getattr(settings, 'FRESHDESK_RESPONDER_ID', None)
+
         if self.domain and self.api_key:
             self.base_url = f"https://{self.domain}/api/v2"
             self.configured = True
             logger.info(f"✅ Freshdesk service configured for domain: {self.domain}")
+            if self.responder_id:
+                logger.info(f"   Default responder ID: {self.responder_id}")
         else:
             self.base_url = None
             self.configured = False
             logger.warning("⚠️ Freshdesk not configured")
-        
+
         # Cache for product ID
         self._product_id = None
     
@@ -70,45 +70,51 @@ class FreshdeskService:
         subject: str,
         description: str,
         email: str,
+        name: Optional[str] = None,
         phone: Optional[str] = None,
         priority: int = 2,
         tags: Optional[List[str]] = None,
         custom_fields: Optional[Dict] = None
     ) -> Dict:
-        """Create a Freshdesk ticket"""
+        """Create a Freshdesk ticket - auto-assigned via Freshdesk automation rules"""
         if not self.configured:
             return {"success": False, "error": "Freshdesk not configured"}
-        
+
         try:
             # Get product ID
             product_id = await self._get_product_id()
-            
+
             ticket_data = {
                 "subject": subject,
                 "description": description,
                 "email": email,
                 "priority": priority,
                 "status": 2,  # Open
-                "source": 2,  # Portal (same as original)
+                "source": 2,  # Portal
                 "tags": tags or ["propertyengine", "ai-escalation"],
-                "responder_id": self.DEFAULT_RESPONDER_ID,
             }
-            
+
+            # Add responder_id if configured (required by some Freshdesk accounts)
+            if self.responder_id:
+                ticket_data["responder_id"] = self.responder_id
+
+            # Add requester name if provided
+            if name:
+                ticket_data["name"] = name
+
             if product_id:
                 ticket_data["product_id"] = product_id
-            
+
             if phone:
                 ticket_data["phone"] = phone
-            
+
             if custom_fields:
                 ticket_data["custom_fields"] = custom_fields
-            
+
             logger.info(f"🎫 Creating Freshdesk ticket:")
             logger.info(f"   Subject: {subject[:50]}...")
-            logger.info(f"   Email: {email}")
+            logger.info(f"   Requester: {name} <{email}>")
             logger.info(f"   Priority: {priority}")
-            logger.info(f"   Product ID: {product_id}")
-            logger.info(f"   Responder ID: {self.DEFAULT_RESPONDER_ID}")
             
             async with httpx.AsyncClient() as client:
                 response = await client.post(
@@ -160,12 +166,14 @@ class FreshdeskService:
         # Build subject
         subject = f"PropertyEngine AI Support: {query[:50]}{'...' if len(query) > 50 else ''}"
         
-        # Build description (same format as original)
+        # Build description with full user details
         description = self._format_description(
             query=query,
             agent_response=agent_response,
             confidence_score=confidence_score,
             user_name=user_name,
+            user_agency=user_agency,
+            user_office=user_office,
             conversation_history=conversation_history,
             escalation_reason=escalation_reason
         )
@@ -196,6 +204,7 @@ class FreshdeskService:
             subject=subject,
             description=description,
             email=user_email,
+            name=user_name,
             phone=user_phone,
             priority=priority,
             tags=["propertyengine", "ai-escalation"],
@@ -220,6 +229,8 @@ class FreshdeskService:
         agent_response: str,
         confidence_score: float,
         user_name: Optional[str],
+        user_agency: Optional[str],
+        user_office: Optional[str],
         conversation_history: Optional[List[Dict]],
         escalation_reason: str
     ) -> str:
@@ -227,8 +238,13 @@ class FreshdeskService:
         lines = [
             "=== PropertyEngine AI Chat Conversation ===",
             "",
-            f"User: {user_name or 'Unknown'}",
-            f"Escalation Reason: {escalation_reason}",
+            "--- Requester Details ---",
+            f"Name: {user_name or 'Unknown'}",
+            f"Agency: {user_agency or 'Not specified'}",
+            f"Office: {user_office or 'Not specified'}",
+            "",
+            "--- Escalation Info ---",
+            f"Reason: {escalation_reason}",
             f"AI Confidence: {confidence_score:.1%}",
             "",
             "--- Original Question ---",
@@ -237,7 +253,7 @@ class FreshdeskService:
             "--- AI Response ---",
             agent_response,
         ]
-        
+
         if conversation_history:
             lines.extend([
                 "",
@@ -246,7 +262,7 @@ class FreshdeskService:
             for msg in conversation_history[-10:]:
                 role = "👤 User" if msg.get("role") == "user" else "🤖 AI Assistant"
                 lines.append(f"{role}: {msg.get('content', '')[:500]}")
-        
+
         lines.extend([
             "",
             "=== End of Conversation ===",

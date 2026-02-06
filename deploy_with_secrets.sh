@@ -36,7 +36,7 @@ gcloud run deploy $SERVICE_NAME \
   --set-env-vars="DEBUG=false,LOG_LEVEL=INFO,API_HOST=0.0.0.0,API_PORT=8080" \
   --set-env-vars="AZURE_OPENAI_EMBEDDING_MODEL=text-embedding-3-large,AZURE_OPENAI_CHAT_MODEL=gpt-4o-mini" \
   --set-env-vars="OPENAI_MODEL=gpt-4o-mini,EMBEDDING_MODEL=text-embedding-3-large" \
-  --set-env-vars="ASTRADB_KB_ENTRIES_COLLECTION=kb_entries,REDIS_DB=0" \
+  --set-env-vars="ASTRADB_KB_ENTRIES_COLLECTION=kb_entries,ASTRADB_PROPERTY_ENGINE_COLLECTION=kb_entries,REDIS_DB=0" \
   --set-secrets="FIREBASE_PROJECT_ID=FIREBASE_PROJECT_ID:latest" \
   --set-secrets="FIREBASE_CLIENT_EMAIL=FIREBASE_CLIENT_EMAIL:latest" \
   --set-secrets="FIREBASE_PRIVATE_KEY=FIREBASE_PRIVATE_KEY:latest" \
@@ -50,6 +50,7 @@ gcloud run deploy $SERVICE_NAME \
   --set-secrets="OPENAI_BASE_URL=OPENAI_BASE_URL:latest" \
   --set-secrets="FRESHDESK_API_KEY=FRESHDESK_API_KEY:latest" \
   --set-secrets="FRESHDESK_DOMAIN=FRESHDESK_DOMAIN:latest" \
+  --set-secrets="FRESHDESK_RESPONDER_ID=FRESHDESK_RESPONDER_ID:latest" \
   --set-secrets="REDIS_HOST=REDIS_HOST:latest" \
   --set-secrets="REDIS_PORT=REDIS_PORT:latest" \
   --set-secrets="REDIS_PASSWORD=REDIS_PASSWORD:latest"

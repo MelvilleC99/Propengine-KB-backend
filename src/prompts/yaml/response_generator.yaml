@@ -11,6 +11,8 @@ rules:
   - If KB doesn't have the answer, acknowledge this clearly
   - If multiple solutions exist, ask which scenario applies to the user
   - Use conversation history to provide context-aware responses
+  - When KB context includes source titles, you may reference them naturally (e.g., "According to the Upload Guide...")
+  - When KB context shows Related Topics, suggest them if relevant to help users explore further
 
 formatting_guide:
   step_by_step_instructions: |
@@ -102,5 +104,10 @@ template: |
      - Acknowledge what you don't know
      - Don't apologize excessively
      - Keep it simple and direct
-  
+
+  6. When KB context includes source information:
+     - You may naturally reference sources: "According to the Setup Guide..."
+     - If you see "📌 Related Topics", suggest them when helpful: "You might also want to check: [topic name]"
+     - Don't force references if they don't flow naturally
+
   Response:

@@ -137,12 +137,15 @@ async def create_ticket(failure_id: str, request: CreateTicketRequest, http_requ
             }
         
         # Create Freshdesk ticket with all user info
+        # Use fallback email if user_email is empty or None
+        user_email = failure.get("user_email") or "support@propertyengine.co.za"
+
         freshdesk = get_freshdesk_service()
         ticket_result = await freshdesk.create_escalation_ticket(
             query=failure.get("query", ""),
             agent_response=failure.get("agent_response", ""),
             confidence_score=failure.get("confidence_score", 0),
-            user_email=failure.get("user_email", "support@propertyengine.co.za"),
+            user_email=user_email,
             user_name=failure.get("user_name"),
             user_phone=request.user_phone,
             user_agency=failure.get("user_agency"),
@@ -221,3 +224,63 @@ async def get_needs_kb(limit: int = 20):
         return {"success": True, "failures": failures, "count": len(failures)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# === Freshdesk Webhook ===
+
+@router.post("/webhook/fd-ticket-closed")
+async def fd_ticket_closed(request: Request):
+    """
+    Freshdesk Webhook - Ticket Closed
+
+    Configure in Freshdesk:
+    - URL: https://knowledge-base-backend-hrjhw2yiva-uc.a.run.app/api/agent-failure/webhook/fd-ticket-closed
+    - Method: POST
+    - Content-Type: JSON
+
+    Expected payload (use these placeholders in Freshdesk):
+    {
+        "ticket_id": {{ticket.id}},
+        "subject": "{{ticket.subject}}",
+        "description": "{{ticket.description}}",
+        "agent_name": "{{ticket.agent.name}}",
+        "status": "{{ticket.status}}",
+        "root_cause": "{{ticket.cf_root_cause}}",
+        "solution_steps": "{{ticket.cf_solutionadd_steps}}"
+    }
+    """
+    try:
+        payload = await request.json()
+
+        # Extract fields from Freshdesk payload
+        ticket_id = payload.get("ticket_id")
+        status = payload.get("status")
+        agent_name = payload.get("agent_name")
+        root_cause = payload.get("root_cause")
+        solution_steps = payload.get("solution_steps")
+
+        logger.info(f"🎫 Freshdesk webhook: ticket #{ticket_id}, status: {status}, agent: {agent_name}")
+
+        if not ticket_id:
+            logger.warning("⚠️ Webhook missing ticket_id")
+            return {"success": False, "error": "Missing ticket_id"}
+
+        # Update Firebase record with resolution details
+        service = get_failure_service()
+        result = service.update_ticket_closed(
+            ticket_id=int(ticket_id),
+            agent_name=agent_name,
+            root_cause=root_cause,
+            solution_steps=solution_steps
+        )
+
+        if result["success"]:
+            logger.info(f"✅ Ticket #{ticket_id} closed, failure record updated")
+            return {"success": True, "message": f"Ticket #{ticket_id} marked as closed"}
+        else:
+            logger.warning(f"⚠️ Could not update failure for ticket #{ticket_id}: {result.get('error')}")
+            return {"success": True, "message": "Webhook received", "note": result.get("error")}
+
+    except Exception as e:
+        logger.error(f"❌ Webhook error: {e}")
+        return {"success": False, "error": str(e)}

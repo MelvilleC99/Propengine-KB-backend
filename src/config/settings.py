@@ -31,7 +31,8 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
     
-    # Redis Configuration
+    # Redis Configuration (optional - set REDIS_ENABLED=false to disable)
+    REDIS_ENABLED: bool = os.getenv("REDIS_ENABLED", "true").lower() == "true"
     REDIS_HOST: str = os.getenv("REDIS_HOST", "localhost")
     REDIS_PORT: int = int(os.getenv("REDIS_PORT", "6379"))
     REDIS_PASSWORD: Optional[str] = os.getenv("REDIS_PASSWORD")
@@ -52,7 +53,7 @@ class Settings(BaseSettings):
     
     # Query Settings
     MAX_SEARCH_RESULTS: int = 6  # Increased from 3 for better context
-    MIN_CONFIDENCE_SCORE: float = 0.7
+    MIN_CONFIDENCE_SCORE: float = 0.50  # Retrieval threshold - low to get candidates, reranker handles precision
     ENABLE_QUERY_ENHANCEMENT: bool = os.getenv("ENABLE_QUERY_ENHANCEMENT", "false").lower() == "true"  # Toggle query enhancement
     
     class Config:

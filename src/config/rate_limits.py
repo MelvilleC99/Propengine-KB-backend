@@ -22,7 +22,7 @@ RATE_LIMITS = {
     # Optional: Prevent burst/spam within a single session
     # Currently NOT ACTIVE - set to higher values if enabling
     "query_session": {
-        "requests": 10,       # Queries per session
+        "requests": 60,       # Queries per session
         "window": 60,         # Time window in seconds (60 = 1 minute)
         "description": "Per-session burst protection (not active)"
     },
@@ -38,7 +38,7 @@ RATE_LIMITS = {
     # === TICKET/ESCALATION ENDPOINTS ===
     # Agent failure reporting and ticket creation
     "ticket": {
-        "requests": 10,       # Number of tickets/failures allowed
+        "requests": 20,       # Number of tickets/failures allowed
         "window": 86400,      # 24 hours
         "description": "Agent failures and ticket creation"
     },
@@ -100,7 +100,7 @@ DEV_LIMITS = {
 # ACTIVE_LIMITS = STRICT_LIMITS
 # ACTIVE_LIMITS = DEV_LIMITS
 
-ACTIVE_LIMITS = RATE_LIMITS  # Currently using standard limits
+ACTIVE_LIMITS = DEV_LIMITS  # Using dev limits during development/testing
 
 
 def get_rate_limits():

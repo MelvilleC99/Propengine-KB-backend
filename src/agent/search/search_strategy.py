@@ -56,21 +56,36 @@ class SearchStrategy:
         """
         search_attempts = []
         cached_embeddings = None
-        
-        # Primary search with entry_type filter
-        search_attempts.append(f"primary:{query_type}")
-        results, cached_embeddings, search_stats = await self.vector_search.search(
-            query=query,
-            entry_type=query_type,
-            user_type=user_type_filter,
-            k=settings.MAX_SEARCH_RESULTS,
-            session_id=session_id  # NOW PASSED
-        )
-        
+
+        # Determine if we should filter by entry_type
+        # "general" means classifier was unsure — search broadly from the start
+        use_entry_type = query_type if query_type != "general" else None
+
+        # === PRIMARY SEARCH ===
+        if use_entry_type:
+            # Classifier was confident — search with entryType filter
+            search_attempts.append(f"primary:{query_type}")
+            results, cached_embeddings, search_stats = await self.vector_search.search(
+                query=query,
+                entry_type=use_entry_type,
+                user_type=user_type_filter,
+                k=settings.MAX_SEARCH_RESULTS,
+                session_id=session_id
+            )
+        else:
+            # Classifier unsure ("general") — search without entryType filter
+            search_attempts.append("primary:broad_search")
+            results, cached_embeddings, search_stats = await self.vector_search.search(
+                query=query,
+                user_type=user_type_filter,
+                k=settings.MAX_SEARCH_RESULTS,
+                session_id=session_id
+            )
+
         # Record search execution
         if search_stats:
             self.metrics_collector.record_search_execution(
-                filters=search_stats.get("filters_applied", {}),
+                filters=search_stats.get("filters_applied") or {},
                 docs_scanned=search_stats.get("documents_requested", 0),
                 docs_matched=search_stats.get("documents_matched", 0),
                 docs_returned=search_stats.get("documents_returned", 0),
@@ -78,38 +93,38 @@ class SearchStrategy:
                 embedding_time_ms=search_stats.get("embedding_time_ms", 0.0),
                 search_time_ms=search_stats.get("search_time_ms", 0.0)
             )
-        
+
         # === PARENT DOCUMENT RETRIEVAL ===
-        # If results contain chunks from parent documents, fetch all sibling chunks
         if results:
             results = await parent_retrieval_handler.expand_parent_documents(
                 results, query, cached_embeddings
             )
             search_attempts.append(f"parent_retrieval:expanded_to_{len(results)}")
-        
+
         if results:
             return results, search_attempts
-        
-        # Fallback 1: Remove entry_type filter
-        logger.info(f"No results for {query_type}, trying without entry_type filter")
-        search_attempts.append("fallback:no_filter")
-        results, _, search_stats = await self.vector_search.search(
-            query=query,
-            user_type=user_type_filter,
-            k=settings.MAX_SEARCH_RESULTS,
-            query_embeddings=cached_embeddings,
-            session_id=session_id  # NOW PASSED
-        )
-        
-        # Expand parent documents for fallback results too
-        if results:
-            results = await parent_retrieval_handler.expand_parent_documents(
-                results, query, cached_embeddings
+
+        # === FALLBACK: Remove entry_type filter (only if we had one) ===
+        if use_entry_type:
+            logger.info(f"No results for {query_type}, trying without entry_type filter")
+            search_attempts.append("fallback:no_filter")
+            results, _, search_stats = await self.vector_search.search(
+                query=query,
+                user_type=user_type_filter,
+                k=settings.MAX_SEARCH_RESULTS,
+                query_embeddings=cached_embeddings,
+                session_id=session_id
             )
-            search_attempts.append(f"parent_retrieval_fallback:expanded_to_{len(results)}")
-            return results, search_attempts
-        
-        # Fallback 2: If howto, try error
+
+            if results:
+                results = await parent_retrieval_handler.expand_parent_documents(
+                    results, query, cached_embeddings
+                )
+                search_attempts.append(f"parent_retrieval_fallback:expanded_to_{len(results)}")
+                return results, search_attempts
+
+        # === TYPE-SPECIFIC FALLBACKS ===
+        # If howto query failed, try searching error entries
         if query_type == "howto":
             logger.info("Trying error type as fallback for howto")
             search_attempts.append("fallback:error")
@@ -119,11 +134,11 @@ class SearchStrategy:
                 user_type=user_type_filter,
                 k=settings.MAX_SEARCH_RESULTS,
                 query_embeddings=cached_embeddings,
-                session_id=session_id  # NOW PASSED
+                session_id=session_id
             )
-        
-        # Fallback 3: If definition contains "error", try error type
-        if query_type == "definition" and "error" in query.lower():
+
+        # If definition query contains "error", try error entries
+        if not results and query_type == "definition" and "error" in query.lower():
             logger.info("Definition query contains 'error', trying error type")
             search_attempts.append("fallback:error_detected")
             results, _, search_stats = await self.vector_search.search(
@@ -132,7 +147,7 @@ class SearchStrategy:
                 user_type=user_type_filter,
                 k=settings.MAX_SEARCH_RESULTS,
                 query_embeddings=cached_embeddings,
-                session_id=session_id  # NOW PASSED
+                session_id=session_id
             )
-        
+
         return results, search_attempts

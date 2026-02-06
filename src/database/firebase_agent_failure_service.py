@@ -193,6 +193,57 @@ class FirebaseAgentFailureService:
             logger.error(f"❌ Failed to get failures needing KB: {e}")
             return []
     
+    def update_ticket_closed(
+        self,
+        ticket_id: int,
+        agent_name: Optional[str] = None,
+        root_cause: Optional[str] = None,
+        solution_steps: Optional[str] = None
+    ) -> Dict:
+        """Update failure record when Freshdesk ticket is closed"""
+        try:
+            if not self.db:
+                return {"success": False, "error": "Firebase not available"}
+
+            # Find failure by ticket_id
+            docs = (
+                self.db.collection(self.collection_name)
+                .where("ticket_id", "==", ticket_id)
+                .limit(1)
+                .get()
+            )
+
+            doc_list = list(docs)
+            if not doc_list:
+                return {"success": False, "error": f"No failure found for ticket #{ticket_id}"}
+
+            doc = doc_list[0]
+
+            # Build update payload
+            update_data = {
+                "resolved": True,
+                "ticket_closed_at": SERVER_TIMESTAMP,
+                "needs_kb_entry": False
+            }
+
+            # Add resolution details from Freshdesk
+            if agent_name:
+                update_data["resolved_by"] = agent_name
+            if root_cause:
+                update_data["root_cause"] = root_cause
+            if solution_steps:
+                update_data["solution_steps"] = solution_steps
+
+            doc.reference.update(update_data)
+
+            logger.info(f"✅ Ticket #{ticket_id} marked as closed (failure: {doc.id})")
+
+            return {"success": True, "failure_id": doc.id}
+
+        except Exception as e:
+            logger.error(f"❌ Failed to update ticket closed: {e}")
+            return {"success": False, "error": str(e)}
+
     def get_failure_stats(self) -> Dict:
         """Get failure statistics for dashboard"""
         try:

@@ -193,30 +193,30 @@ class TokenTracker:
             return CostBreakdown()
         
         costs = self.session_costs[session_id]
-        
-        # Extract costs by operation
+
+        # Extract costs by operation (NEW: using "query_intelligence" instead of "query_enhancement")
         embedding_cost = costs.get("embedding", {}).get("cost", 0.0)
-        query_building_cost = costs.get("query_enhancement", {}).get("cost", 0.0)
+        query_intelligence_cost = costs.get("query_intelligence", {}).get("cost", 0.0)
         response_generation_cost = costs.get("response_generation", {}).get("cost", 0.0)
-        
+
         # Extract tokens
         embedding_tokens = costs.get("embedding", {}).get("tokens", 0)
-        query_input = costs.get("query_enhancement", {}).get("input_tokens", 0)
-        query_output = costs.get("query_enhancement", {}).get("output_tokens", 0)
+        query_input = costs.get("query_intelligence", {}).get("input_tokens", 0)
+        query_output = costs.get("query_intelligence", {}).get("output_tokens", 0)
         response_input = costs.get("response_generation", {}).get("input_tokens", 0)
         response_output = costs.get("response_generation", {}).get("output_tokens", 0)
-        
-        total_cost = embedding_cost + query_building_cost + response_generation_cost
+
+        total_cost = embedding_cost + query_intelligence_cost + response_generation_cost
         total_tokens = embedding_tokens + query_input + query_output + response_input + response_output
-        
+
         return CostBreakdown(
             embedding_cost=embedding_cost,
-            query_building_cost=query_building_cost,
+            query_intelligence_cost=query_intelligence_cost,
             response_generation_cost=response_generation_cost,
             total_cost=total_cost,
             embedding_tokens=embedding_tokens,
-            query_building_input_tokens=query_input,
-            query_building_output_tokens=query_output,
+            query_intelligence_input_tokens=query_input,
+            query_intelligence_output_tokens=query_output,
             response_input_tokens=response_input,
             response_output_tokens=response_output,
             total_tokens=total_tokens

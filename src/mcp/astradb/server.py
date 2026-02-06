@@ -129,7 +129,9 @@ class AstraDBMCP:
             # 1. First, try direct delete of single entry
             try:
                 result = collection.delete_one({"_id": entry_id})
-                if result.deleted_count > 0:
+                # Handle both object attribute and dict key access
+                del_count = result.get("deleted_count", 0) if isinstance(result, dict) else getattr(result, "deleted_count", 0)
+                if del_count > 0:
                     deleted_ids.append(entry_id)
                     logger.info(f"🗑️ Deleted single document: {entry_id}")
                     # If single doc found, we're done
@@ -157,8 +159,9 @@ class AstraDBMCP:
                     
                     # Delete all chunks using delete_many
                     result = collection.delete_many({"_id": {"$in": chunk_ids}})
-                    deleted_count = result.deleted_count
-                    
+                    # Handle both object attribute and dict key access
+                    deleted_count = result.get("deleted_count", 0) if isinstance(result, dict) else getattr(result, "deleted_count", 0)
+
                     logger.info(f"✅ Deleted {deleted_count} chunks for entry: {entry_id}")
                     
                     return {
@@ -323,19 +326,35 @@ class AstraDBMCP:
                 # Extract document ID and content
                 doc_id = doc_dict.get("_id", "unknown")
                 content = doc_dict.get("content", doc_dict.get("text", ""))
-                
-                # Get metadata - it's nested under 'metadata' key in AstraDB
-                metadata = doc_dict.get("metadata", {})
-                
+
+                # Get metadata - could be nested under 'metadata' key (direct access)
+                # or at top level (fallback similarity_search)
+                nested_metadata = doc_dict.get("metadata", {})
+                if nested_metadata:
+                    metadata = nested_metadata
+                else:
+                    # Metadata is spread at top level - extract known fields
+                    metadata = {k: v for k, v in doc_dict.items()
+                               if k not in ("_id", "content", "text", "$vector", "$vectorize")}
+
                 # Determine if this is a chunk
                 is_chunk = "parent_entry_id" in metadata
-                
+
+                # Get title from various possible locations
+                title = (metadata.get("parent_title") or
+                        metadata.get("title") or
+                        doc_dict.get("parent_title") or
+                        doc_dict.get("title") or
+                        "Untitled")
+
                 formatted_entries.append({
                     "entry_id": doc_id,
-                    "title": metadata.get("parent_title") or metadata.get("title", "Untitled"),
+                    "title": title,
                     "content_preview": content[:200] + "..." if len(content) > 200 else content,
                     "metadata": {
-                        **metadata,
+                        "entryType": metadata.get("entryType", metadata.get("type")),
+                        "category": metadata.get("category"),
+                        "parent_entry_id": metadata.get("parent_entry_id"),
                         "is_chunk": is_chunk,
                         "chunk_section": metadata.get("section_type") if is_chunk else None,
                         "chunk_position": f"{metadata.get('chunk_index', 0) + 1}/{metadata.get('total_chunks', 1)}" if is_chunk else None

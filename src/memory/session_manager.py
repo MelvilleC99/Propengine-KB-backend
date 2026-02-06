@@ -221,9 +221,9 @@ class SessionManager:
         }
     
     def _format_context_for_llm(self, context: Dict) -> str:
-        """Format context into readable text for LLM prompt"""
+        """Format context into readable text for LLM prompt with KB source awareness"""
         lines = []
-        
+
         # Add summary if exists
         if context.get("has_summary") and context.get("summary"):
             summary = context["summary"]
@@ -234,15 +234,36 @@ class SessionManager:
             if summary.get("key_facts"):
                 lines.append(f"Key Facts: {', '.join(summary['key_facts'])}")
             lines.append("")
-        
-        # Add recent messages
+
+        # Add recent messages WITH KB source attribution
         if context.get("messages"):
             lines.append("=== RECENT MESSAGES ===")
             for msg in context["messages"]:
                 role = msg.get("role", "unknown").upper()
                 content = msg.get("content", "")
-                lines.append(f"{role}: {content}")
-        
+                metadata = msg.get("metadata", {})
+
+                # Build message line
+                message_line = f"{role}: {content}"
+
+                # NEW: Add KB source info for assistant responses
+                if role == "ASSISTANT" and metadata.get("sources_used"):
+                    sources = metadata.get("sources_used", [])
+                    confidence = metadata.get("confidence_score", 0.0)
+                    related_docs = metadata.get("related_documents", [])
+
+                    # Add source attribution
+                    if sources:
+                        source_names = ", ".join(sources[:3])  # Limit to 3
+                        message_line += f"\n   📚 Sources: {source_names} (confidence: {confidence:.2f})"
+
+                    # Add related documents for follow-up awareness
+                    if related_docs:
+                        related_names = ", ".join(related_docs[:5])  # Limit to 5
+                        message_line += f"\n   📌 Related: {related_names}"
+
+                lines.append(message_line)
+
         return "\n".join(lines)
     
     # ==================== ROLLING SUMMARIES ====================

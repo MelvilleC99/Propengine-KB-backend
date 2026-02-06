@@ -233,3 +233,146 @@ async def get_cache_health():
     except Exception as e:
         logger.error(f"Error getting cache health: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# === REDIS ADMIN ENDPOINTS ===
+
+@router.get("/redis/stats")
+async def get_redis_stats():
+    """
+    Get Redis statistics including memory usage and key counts
+    """
+    try:
+        from src.database.redis_client import get_redis_client
+        redis_client = get_redis_client()
+
+        # Get Redis info
+        info = redis_client.info()
+
+        # Count keys by pattern
+        rate_limit_keys = len(redis_client.keys("rate_limit:*"))
+        context_keys = len(redis_client.keys("context:*"))
+        session_keys = len(redis_client.keys("session:*"))
+        all_keys = redis_client.dbsize()
+
+        return {
+            "status": "connected",
+            "memory": {
+                "used": info.get("used_memory_human", "unknown"),
+                "peak": info.get("used_memory_peak_human", "unknown"),
+                "fragmentation_ratio": info.get("mem_fragmentation_ratio", 0)
+            },
+            "keys": {
+                "total": all_keys,
+                "rate_limit": rate_limit_keys,
+                "context": context_keys,
+                "session": session_keys,
+                "other": all_keys - rate_limit_keys - context_keys - session_keys
+            },
+            "connections": {
+                "connected_clients": info.get("connected_clients", 0),
+                "blocked_clients": info.get("blocked_clients", 0)
+            },
+            "uptime_seconds": info.get("uptime_in_seconds", 0),
+            "timestamp": datetime.now().isoformat()
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting Redis stats: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
+
+
+@router.post("/redis/flush")
+async def flush_redis(pattern: Optional[str] = None):
+    """
+    Flush Redis keys
+
+    Args:
+        pattern: Optional pattern to match (e.g., "rate_limit:*", "context:*")
+                 If not provided, flushes ALL keys
+
+    Patterns:
+        - rate_limit:* - Rate limiting counters
+        - context:* - Session context/messages
+        - session:* - Session summaries
+        - * or None - ALL keys (use with caution!)
+    """
+    try:
+        from src.database.redis_client import get_redis_client
+        redis_client = get_redis_client()
+
+        if pattern and pattern != "*":
+            # Flush specific pattern
+            keys = redis_client.keys(pattern)
+            if keys:
+                deleted = redis_client.delete(*keys)
+                logger.info(f"🗑️ Flushed {deleted} Redis keys matching '{pattern}'")
+                return {
+                    "success": True,
+                    "pattern": pattern,
+                    "deleted_count": deleted,
+                    "timestamp": datetime.now().isoformat()
+                }
+            else:
+                return {
+                    "success": True,
+                    "pattern": pattern,
+                    "deleted_count": 0,
+                    "message": "No keys matched the pattern",
+                    "timestamp": datetime.now().isoformat()
+                }
+        else:
+            # Flush ALL keys
+            redis_client.flushdb()
+            logger.warning("🗑️ Flushed ALL Redis keys!")
+            return {
+                "success": True,
+                "pattern": "ALL",
+                "message": "All Redis keys flushed",
+                "timestamp": datetime.now().isoformat()
+            }
+
+    except Exception as e:
+        logger.error(f"Error flushing Redis: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/redis/flush-rate-limits")
+async def flush_rate_limits():
+    """Quick endpoint to flush only rate limit keys"""
+    return await flush_redis(pattern="rate_limit:*")
+
+
+@router.post("/redis/flush-sessions")
+async def flush_sessions():
+    """Quick endpoint to flush session context and summaries"""
+    try:
+        from src.database.redis_client import get_redis_client
+        redis_client = get_redis_client()
+
+        # Flush both context and session keys
+        context_keys = redis_client.keys("context:*")
+        session_keys = redis_client.keys("session:*")
+        all_session_keys = context_keys + session_keys
+
+        deleted = 0
+        if all_session_keys:
+            deleted = redis_client.delete(*all_session_keys)
+
+        logger.info(f"🗑️ Flushed {deleted} session-related Redis keys")
+
+        return {
+            "success": True,
+            "deleted_count": deleted,
+            "context_keys": len(context_keys),
+            "session_keys": len(session_keys),
+            "timestamp": datetime.now().isoformat()
+        }
+
+    except Exception as e:
+        logger.error(f"Error flushing sessions: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

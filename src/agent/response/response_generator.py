@@ -111,7 +111,8 @@ class ResponseGenerator:
         session_id: Optional[str] = None
     ) -> str:
         """
-        Generate response when no knowledge base results found
+        Generate response when no knowledge base results found.
+        Returns a fixed message — no LLM call to prevent hallucination.
 
         Args:
             query: User's query
@@ -120,32 +121,12 @@ class ResponseGenerator:
         Returns:
             Fallback response string
         """
-        # Use same prompt but with empty context
-        full_prompt = (
-            self.system_prompt + "\n\n" +
-            self.response_prompt.format(
-                conversation_context="No previous conversation",
-                context="",  # Empty KB content
-                query=query
-            )
+        logger.info(f"⚠️ No KB results for: {query[:50]} — returning fixed fallback (no LLM call)")
+
+        return (
+            "I don't have information about that in our knowledge base yet. "
+            "Would you like me to escalate this to our support team for further assistance?"
         )
-
-        logger.debug(f"Generating fallback response for: {query[:50]}...")
-
-        response = await self.llm.ainvoke([HumanMessage(content=full_prompt)])
-
-        # Track tokens for fallback response
-        if session_id:
-            token_tracker.track_chat_usage(
-                response=response,
-                model=settings.OPENAI_MODEL,
-                session_id=session_id,
-                operation="response_generation"
-            )
-
-        logger.info(f"✅ Fallback response generated")
-
-        return response.content
     
     async def generate_greeting_response(self) -> str:
         """Generate friendly greeting response"""

@@ -9,6 +9,7 @@ OPTIMIZED: Single query intelligence call for follow-up detection + enhancement
 
 from typing import Dict, List, Optional
 import logging
+import re
 import time
 from src.config.settings import settings
 from src.query.vector_search import VectorSearch
@@ -58,7 +59,70 @@ class Agent:
         self.kb_analytics = KBAnalyticsTracker()
 
         logger.info("✅ Agent orchestrator initialized (optimized with query intelligence)")
-    
+
+    # === Follow-up detection patterns (fast, local, no LLM) ===
+    FOLLOWUP_PATTERNS = [
+        r"^(yes|no|yeah|nah|ok|okay|sure|right|exactly)\b",  # Short affirmative/negative
+        r"\b(you said|you mentioned|you told me|as you said)\b",
+        r"\b(what about|how about|and also|also what|tell me more)\b",
+        r"\b(no i meant|i meant|i mean|actually i)\b",
+        r"\b(that one|the one you|which one|the same)\b",
+        r"\b(can you explain|explain that|more detail|elaborate)\b",
+        r"\b(follow.?up|going back to|earlier you)\b",
+    ]
+    # Pronoun-heavy short queries suggest follow-up (e.g. "what does it do", "is that correct")
+    PRONOUN_PATTERN = r"\b(it|that|this|they|those|these|its|their)\b"
+
+    @classmethod
+    def _is_likely_followup(cls, query: str, message_count: int, conversation_context: str) -> bool:
+        """
+        Fast local follow-up detection (<1ms) — no LLM call.
+
+        Returns True if the query looks like a follow-up to existing conversation.
+        Uses message_count from Redis + regex patterns on the query text.
+        """
+        # No conversation history → can't be a follow-up
+        if message_count <= 1 or not conversation_context.strip():
+            return False
+
+        query_lower = query.lower().strip()
+
+        # Check explicit follow-up patterns
+        for pattern in cls.FOLLOWUP_PATTERNS:
+            if re.search(pattern, query_lower):
+                return True
+
+        # Short query with pronouns (e.g. "what does it cost", "is that for owners")
+        word_count = len(query_lower.split())
+        if word_count <= 6 and re.search(cls.PRONOUN_PATTERN, query_lower):
+            return True
+
+        return False
+
+    def _create_skip_qi_analysis(self, query: str, query_type: str) -> 'QueryAnalysis':
+        """
+        Create a default QueryAnalysis when skipping the QI LLM call.
+        Uses the raw query as-is — no enhancement, no routing override.
+        """
+        from src.agent.query_processing.query_intelligence import QueryAnalysis
+        from src.agent.query_processing.query_builder import StructuredQuery
+
+        return QueryAnalysis(
+            is_followup=False,
+            can_answer_from_context=False,
+            matched_related_doc=None,
+            routing="full_rag",
+            structured_query=StructuredQuery(
+                original=query,
+                enhanced=query,  # Raw query — no LLM enhancement
+                query_type=query_type,
+                category=query_type,
+                tags=[],
+                user_intent="search"
+            ),
+            confidence=0.8
+        )
+
     async def process_query(
         self, 
         query: str, 
@@ -146,41 +210,55 @@ class Agent:
                     "classification_confidence": classification_confidence
                 }
 
-            # === STEP 5: Query Intelligence (single LLM call) ===
-            # Extract related docs from conversation history
-            available_related_docs = []
-            if conversation_context:
-                recent_messages = self.session_manager.context_cache.get_messages(session_id, limit=5)
-                for msg in recent_messages:
-                    if msg.get("role") == "assistant":
-                        msg_metadata = msg.get("metadata", {})
-                        if msg_metadata.get("related_documents"):
-                            available_related_docs.extend(msg_metadata.get("related_documents", []))
-                available_related_docs = list(dict.fromkeys(available_related_docs))  # Remove duplicates
+            # === STEP 5: Follow-up detection + conditional Query Intelligence ===
+            is_followup = self._is_likely_followup(query, message_count, conversation_context)
+            logger.info(f"🔍 Fast follow-up check: is_followup={is_followup}, message_count={message_count}")
 
-            # Single smart analysis (replaces follow-up detection + query enhancement)
-            self.metrics_collector._start_timer("query_intelligence")
-            analysis = await self.query_intelligence.analyze(
-                query=query,
-                query_type=query_type,
-                conversation_context=conversation_context,
-                available_related_docs=available_related_docs,
-                session_id=session_id
-            )
+            if is_followup:
+                # Follow-up detected — call QI for routing + query enhancement
+                available_related_docs = []
+                if conversation_context:
+                    recent_messages = self.session_manager.context_cache.get_messages(session_id, limit=5)
+                    for msg in recent_messages:
+                        if msg.get("role") == "assistant":
+                            msg_metadata = msg.get("metadata", {})
+                            if msg_metadata.get("related_documents"):
+                                available_related_docs.extend(msg_metadata.get("related_documents", []))
+                    available_related_docs = list(dict.fromkeys(available_related_docs))
 
-            # Record metrics
-            self.metrics_collector.record_query_intelligence(
-                enhanced_query=analysis.structured_query.enhanced,
-                category=analysis.structured_query.category,
-                tags=analysis.structured_query.tags,
-                intent=analysis.structured_query.user_intent
-            )
+                self.metrics_collector._start_timer("query_intelligence")
+                analysis = await self.query_intelligence.analyze(
+                    query=query,
+                    query_type=query_type,
+                    conversation_context=conversation_context,
+                    available_related_docs=available_related_docs,
+                    session_id=session_id
+                )
 
-            logger.info(
-                f"🧠 Query intelligence: routing={analysis.routing}, "
-                f"is_followup={analysis.is_followup}, "
-                f"enhanced='{analysis.structured_query.enhanced}'"
-            )
+                self.metrics_collector.record_query_intelligence(
+                    enhanced_query=analysis.structured_query.enhanced,
+                    category=analysis.structured_query.category,
+                    tags=analysis.structured_query.tags,
+                    intent=analysis.structured_query.user_intent
+                )
+
+                logger.info(
+                    f"🧠 Query intelligence: routing={analysis.routing}, "
+                    f"is_followup={analysis.is_followup}, "
+                    f"enhanced='{analysis.structured_query.enhanced}'"
+                )
+            else:
+                # Not a follow-up — skip QI, use raw query directly (saves ~2200ms)
+                analysis = self._create_skip_qi_analysis(query, query_type)
+
+                self.metrics_collector.record_query_intelligence(
+                    enhanced_query=query,
+                    category=query_type,
+                    tags=[],
+                    intent="search"
+                )
+
+                logger.info(f"⚡ Skipped QI (not a follow-up) — using raw query for search")
 
             # === STEP 6: Route based on analysis ===
             # Option 1: Answer from conversation context
@@ -342,7 +420,16 @@ class Agent:
                 logger.warning("⚠️ No cost_breakdown in debug_metrics!")
             
             # === STEP 14: Build metadata ===
-            requires_escalation = best_confidence < 0.7
+            # Escalation logic: trigger if confidence is low OR response indicates failure
+            failure_phrases = [
+                "couldn't find", "could not find", "unable to find",
+                "don't have information", "no information available",
+                "cannot help", "can't help", "unable to help",
+                "i'm sorry", "i apologize", "unfortunately"
+            ]
+            response_indicates_failure = any(phrase in response.lower() for phrase in failure_phrases)
+
+            requires_escalation = best_confidence < 0.7 or (response_indicates_failure and len(sources) == 0)
 
             # Extract related documents from sources for follow-up awareness
             related_documents = []
