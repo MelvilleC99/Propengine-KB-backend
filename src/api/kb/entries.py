@@ -4,11 +4,12 @@ from fastapi import APIRouter, HTTPException, status
 from typing import Optional
 import logging
 
-from src.mcp.firebase import FirebaseMCP
-from src.mcp.vector_sync import VectorSyncMCP
+from src.services.firebase import FirebaseService
+from src.services.vector_sync import VectorSyncService
 from .models import (
     CreateEntryRequest,
     UpdateEntryRequest,
+    ArchiveEntryRequest,
     EntryResponse,
     ListEntriesResponse,
 )
@@ -42,7 +43,7 @@ async def create_entry(request: CreateEntryRequest):
             entry_data["category"] = entry_data["metadata"]["category"]
 
         # Initialize Firebase MCP
-        firebase_mcp = FirebaseMCP()
+        firebase_mcp = FirebaseService()
 
         # Create entry
         result = await firebase_mcp.create_entry(entry_data)
@@ -78,7 +79,7 @@ async def get_entry(entry_id: str):
     try:
         logger.info(f"Fetching entry: {entry_id}")
 
-        firebase_mcp = FirebaseMCP()
+        firebase_mcp = FirebaseService()
         result = await firebase_mcp.get_entry(entry_id)
 
         if not result["success"]:
@@ -131,7 +132,7 @@ async def list_entries(
         if archived is not None:
             filters["archived"] = archived
 
-        firebase_mcp = FirebaseMCP()
+        firebase_mcp = FirebaseService()
         result = await firebase_mcp.list_entries(filters=filters, limit=limit)
 
         if not result["success"]:
@@ -176,7 +177,7 @@ async def update_entry(entry_id: str, request: UpdateEntryRequest):
                 detail="No fields to update"
             )
 
-        firebase_mcp = FirebaseMCP()
+        firebase_mcp = FirebaseService()
         result = await firebase_mcp.update_entry(entry_id, update_data)
 
         if not result["success"]:
@@ -215,8 +216,8 @@ async def delete_entry(entry_id: str):
     try:
         logger.info(f"Deleting entry: {entry_id}")
 
-        firebase_mcp = FirebaseMCP()
-        sync_mcp = VectorSyncMCP()
+        firebase_mcp = FirebaseService()
+        sync_mcp = VectorSyncService()
 
         # Delete from vector database first
         await sync_mcp.unsync_entry(entry_id)
@@ -249,22 +250,36 @@ async def delete_entry(entry_id: str):
 
 
 @router.post("/entries/{entry_id}/archive")
-async def archive_entry(entry_id: str):
+async def archive_entry(entry_id: str, request: Optional[ArchiveEntryRequest] = None):
     """
     Archive a KB entry (soft delete).
 
     This will:
-    1. Mark as archived in Firebase
+    1. Mark as archived in Firebase with audit trail
     2. Remove from vector database (archived entries not searchable)
     """
     try:
         logger.info(f"Archiving entry: {entry_id}")
 
-        firebase_mcp = FirebaseMCP()
-        sync_mcp = VectorSyncMCP()
+        firebase_mcp = FirebaseService()
+        sync_mcp = VectorSyncService()
 
-        # Archive in Firebase
-        result = await firebase_mcp.archive_entry(entry_id)
+        # Build archive data with audit trail
+        archive_data = {"archived": True}
+        if request:
+            if request.archivedBy:
+                archive_data["archivedBy"] = request.archivedBy
+            if request.archivedByEmail:
+                archive_data["archivedByEmail"] = request.archivedByEmail
+            if request.archivedByName:
+                archive_data["archivedByName"] = request.archivedByName
+            if request.archivedAt:
+                archive_data["archivedAt"] = request.archivedAt
+            if request.reason:
+                archive_data["archivedReason"] = request.reason
+
+        # Archive in Firebase with audit data
+        result = await firebase_mcp.archive_entry(entry_id, archive_data)
 
         if not result["success"]:
             raise HTTPException(

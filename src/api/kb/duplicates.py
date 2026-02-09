@@ -5,7 +5,7 @@ from typing import Dict, List
 import logging
 
 from src.query.vector_search import VectorSearch
-from src.mcp.firebase import FirebaseMCP
+from src.services.firebase import FirebaseService
 from .models import (
     DuplicateCheckRequest,
     DuplicateCheckResponse,
@@ -71,7 +71,7 @@ async def check_duplicates(request: DuplicateCheckRequest):
 
         # Fetch full entry details from Firebase for better display
         similar_entries: List[SimilarEntry] = []
-        firebase_mcp = FirebaseMCP()
+        firebase_mcp = FirebaseService()
 
         # Sort by similarity and take top 5
         sorted_results = sorted(

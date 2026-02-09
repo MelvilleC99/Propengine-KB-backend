@@ -1,16 +1,16 @@
-"""Vector Sync MCP - Orchestrates syncing between Firebase and AstraDB"""
+"""Vector Sync Service - Orchestrates syncing between Firebase and AstraDB"""
 
 from typing import Dict, Any, List
 import logging
-from src.mcp.firebase.server import FirebaseMCP
-from src.mcp.astradb.server import AstraDBMCP
-from src.mcp.vector_sync.chunking import chunk_entry, Chunk
-from src.mcp.vector_sync.document_chunking import chunk_document, chunk_large_document, is_document_entry
+from src.services.firebase.server import FirebaseService
+from src.services.astradb.server import AstraDBService
+from src.services.vector_sync.chunking import chunk_entry, Chunk
+from src.services.vector_sync.document_chunking import chunk_document, chunk_large_document, is_document_entry
 
 logger = logging.getLogger(__name__)
 
 
-class VectorSyncMCP:
+class VectorSyncService:
     """
     MCP Server for vector sync orchestration.
     Coordinates between Firebase and AstraDB to sync KB entries.
@@ -18,8 +18,8 @@ class VectorSyncMCP:
     
     def __init__(self):
         """Initialize Vector Sync MCP with Firebase and AstraDB MCPs"""
-        self.firebase = FirebaseMCP()
-        self.astradb = AstraDBMCP()
+        self.firebase = FirebaseService()
+        self.astradb = AstraDBService()
         logger.info("✅ Vector Sync MCP initialized")
     
     async def sync_entry_to_vector(self, entry_id: str) -> Dict[str, Any]:

@@ -4,8 +4,8 @@ from fastapi import APIRouter, HTTPException, status, UploadFile, File, Form
 from typing import Optional
 import logging
 
-from src.mcp.firebase import FirebaseMCP
-from src.mcp.vector_sync import VectorSyncMCP
+from src.services.firebase import FirebaseService
+from src.services.vector_sync import VectorSyncService
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +102,7 @@ async def upload_document(
         logger.info(f"Built KB entry: {entry_data.get('title')}")
 
         # Step 4: Save to Firebase
-        firebase_mcp = FirebaseMCP()
+        firebase_mcp = FirebaseService()
         create_result = await firebase_mcp.create_entry(entry_data)
 
         if not create_result["success"]:
@@ -117,7 +117,7 @@ async def upload_document(
         # Step 5: Optionally sync to vector database
         sync_result = None
         if auto_sync:
-            sync_mcp = VectorSyncMCP()
+            sync_mcp = VectorSyncService()
             sync_result = await sync_mcp.sync_entry_to_vector(entry_id)
 
             if sync_result["success"]:
@@ -153,7 +153,7 @@ async def get_document_status(entry_id: str):
     Useful for async processing - check if document has been synced.
     """
     try:
-        firebase_mcp = FirebaseMCP()
+        firebase_mcp = FirebaseService()
         result = await firebase_mcp.get_entry(entry_id)
 
         if not result["success"]:

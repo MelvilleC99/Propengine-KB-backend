@@ -1,4 +1,4 @@
-"""AstraDB MCP Server - Handles all vector database operations"""
+"""AstraDB Service - Handles all vector database operations"""
 
 from typing import Dict, Any, List, Optional
 import logging
@@ -7,7 +7,7 @@ from src.database.astra_client import AstraDBConnection
 logger = logging.getLogger(__name__)
 
 
-class AstraDBMCP:
+class AstraDBService:
     """
     MCP Server for AstraDB vector operations.
     Provides tools for storing, searching, and managing vectors.

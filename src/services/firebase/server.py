@@ -1,4 +1,4 @@
-"""Firebase MCP Server - Handles all Firebase Firestore operations"""
+"""Firebase Service - Handles all Firebase Firestore operations"""
 
 from typing import Dict, Any, List, Optional
 import logging
@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 KB_COLLECTION = "kb_entries"
 
 
-class FirebaseMCP:
+class FirebaseService:
     """
     MCP Server for Firebase operations.
     Provides tools for CRUD operations on KB entries in Firestore.
@@ -254,13 +254,14 @@ class FirebaseMCP:
                 "error": str(e)
             }
     
-    async def archive_entry(self, entry_id: str) -> Dict[str, Any]:
+    async def archive_entry(self, entry_id: str, archive_data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
-        Archive a KB entry (soft delete).
-        
+        Archive a KB entry (soft delete) with optional audit trail.
+
         Args:
             entry_id: Document ID
-            
+            archive_data: Optional dict with audit trail fields (archivedBy, archivedByEmail, etc.)
+
         Returns:
             {
                 "success": True,
@@ -273,19 +274,23 @@ class FirebaseMCP:
                 "archivedAt": datetime.utcnow(),
                 "updatedAt": datetime.utcnow()
             }
-            
+
+            # Merge audit trail data if provided
+            if archive_data:
+                update_data.update(archive_data)
+
             doc_ref = self.db.collection(KB_COLLECTION).document(entry_id)
             doc_ref.update(update_data)
-            
-            logger.info(f"✅ Archived entry: {entry_id}")
-            
+
+            logger.info(f"Archived entry: {entry_id}")
+
             return {
                 "success": True,
                 "entry_id": entry_id
             }
-            
+
         except Exception as e:
-            logger.error(f"❌ Failed to archive entry {entry_id}: {e}")
+            logger.error(f"Failed to archive entry {entry_id}: {e}")
             return {
                 "success": False,
                 "error": str(e)

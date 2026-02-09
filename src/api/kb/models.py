@@ -1,6 +1,6 @@
 """Pydantic models for KB API endpoints"""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, Dict, Any, List
 
 
@@ -18,14 +18,34 @@ class CreateEntryRequest(BaseModel):
     tags: Optional[List[str]] = Field(default=None, description="Entry tags")
     author: Optional[str] = Field(default=None, description="Entry author")
 
+    # Audit trail fields - who created this entry
+    createdBy: Optional[str] = Field(default=None, description="User ID who created the entry")
+    createdByEmail: Optional[str] = Field(default=None, description="Email of creator")
+    createdByName: Optional[str] = Field(default=None, description="Display name of creator")
+    createdAt: Optional[str] = Field(default=None, description="ISO 8601 timestamp of creation")
+
 
 class UpdateEntryRequest(BaseModel):
     """Request to update an existing KB entry"""
+    # Allow extra fields from frontend without causing 422
+    model_config = ConfigDict(extra="ignore")
+
     title: Optional[str] = None
     content: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
     rawFormData: Optional[Dict[str, Any]] = None
     tags: Optional[List[str]] = None
+
+    # Additional fields frontend may send
+    userType: Optional[str] = None
+    category: Optional[str] = None
+
+    # Audit trail fields - who modified this entry
+    lastModifiedBy: Optional[str] = Field(default=None, description="User ID who last modified")
+    lastModifiedByEmail: Optional[str] = Field(default=None, description="Email of modifier")
+    lastModifiedByName: Optional[str] = Field(default=None, description="Display name of modifier")
+    lastModifiedAt: Optional[str] = Field(default=None, description="ISO 8601 timestamp of modification")
+    updatedAt: Optional[str] = Field(default=None, description="ISO 8601 timestamp (alias for lastModifiedAt)")
 
 
 class EntryResponse(BaseModel):
@@ -41,6 +61,19 @@ class ListEntriesResponse(BaseModel):
     success: bool
     entries: List[Dict[str, Any]]
     count: int
+
+
+# ============================================================================
+# ARCHIVE MODELS
+# ============================================================================
+
+class ArchiveEntryRequest(BaseModel):
+    """Request to archive a KB entry with audit trail"""
+    archivedBy: Optional[str] = Field(default=None, description="User ID who archived")
+    archivedByEmail: Optional[str] = Field(default=None, description="Email of archiver")
+    archivedByName: Optional[str] = Field(default=None, description="Display name of archiver")
+    archivedAt: Optional[str] = Field(default=None, description="ISO 8601 timestamp of archive")
+    reason: Optional[str] = Field(default="Archived by user", description="Reason for archiving")
 
 
 # ============================================================================

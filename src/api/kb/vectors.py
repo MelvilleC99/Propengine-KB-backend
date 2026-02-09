@@ -3,9 +3,9 @@
 from fastapi import APIRouter, HTTPException, status
 import logging
 
-from src.mcp.firebase import FirebaseMCP
-from src.mcp.vector_sync import VectorSyncMCP
-from src.mcp.astradb import AstraDBMCP
+from src.services.firebase import FirebaseService
+from src.services.vector_sync import VectorSyncService
+from src.services.astradb import AstraDBService
 from .models import SyncResponse
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ async def sync_entry(entry_id: str):
     try:
         logger.info(f"Starting sync for entry: {entry_id}")
 
-        sync_mcp = VectorSyncMCP()
+        sync_mcp = VectorSyncService()
         result = await sync_mcp.sync_entry_to_vector(entry_id)
 
         if not result["success"]:
@@ -82,7 +82,7 @@ async def list_vector_entries(limit: int = 50):
     try:
         logger.info(f"Listing vector entries (limit: {limit})")
 
-        astra_mcp = AstraDBMCP()
+        astra_mcp = AstraDBService()
         result = await astra_mcp.list_vectors(limit=limit)
 
         if not result["success"]:
@@ -119,8 +119,8 @@ async def delete_vector_entry(entry_id: str):
     try:
         logger.info(f"Deleting vector(s) for: {entry_id}")
 
-        astra_mcp = AstraDBMCP()
-        firebase_mcp = FirebaseMCP()
+        astra_mcp = AstraDBService()
+        firebase_mcp = FirebaseService()
 
         # Extract parent entry ID if this is a chunk
         parent_entry_id = entry_id
@@ -182,7 +182,7 @@ async def get_vector_stats():
     try:
         logger.info("Getting vector stats")
 
-        astra_mcp = AstraDBMCP()
+        astra_mcp = AstraDBService()
         result = await astra_mcp.get_vector_stats()
 
         if not result["success"]:
