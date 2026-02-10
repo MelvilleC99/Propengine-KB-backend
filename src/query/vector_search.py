@@ -91,8 +91,8 @@ class VectorSearch:
             embedding_tokens = 0
             if query_embeddings is None:
                 embedding_start = time.time()
-                # Use the embeddings model directly (not the vector store method)
-                query_embeddings = embeddings_model.embed_query(query)
+                # Use async embedding to avoid blocking the event loop for other users
+                query_embeddings = await embeddings_model.aembed_query(query)
                 embedding_time_ms = (time.time() - embedding_start) * 1000
                 
                 # Track embedding tokens (rough estimate: 1 token per 4 chars)

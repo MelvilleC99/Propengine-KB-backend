@@ -76,32 +76,10 @@ async def customer_agent(request: CustomerAgentRequest, http_request: Request):
             user_type_filter="external"  # ← EXTERNAL ONLY
         )
         
-        # Log only escalations for customers
+        # Log escalation (messages already stored by orchestrator)
         if result.get("requires_escalation", False):
             logger.warning(f"⚠️ Customer Agent - Escalation needed for query: {request.message[:50]}")
-            
-            await session_manager.add_message(
-                session_id=session_id,
-                role="user",
-                content=request.message,
-                metadata={
-                    "requires_escalation": True,
-                    "timestamp": datetime.now().isoformat(),
-                    "agent_type": "customer"
-                }
-            )
-            
-            await session_manager.add_message(
-                session_id=session_id,
-                role="assistant",
-                content=result["response"],
-                metadata={
-                    "requires_escalation": True,
-                    "timestamp": datetime.now().isoformat(),
-                    "agent_type": "customer"
-                }
-            )
-        
+
         logger.info(f"✅ Customer Agent - Response generated (external only)")
         
         # Return minimal response for customers

@@ -94,33 +94,8 @@ async def test_agent(request: TestAgentRequest, http_request: Request):
             user_type_filter=None  # ← NO FILTER - sees all entries
         )
         
-        # Log ALL interactions for test agent (helps with debugging)
-        await session_manager.add_message(
-            session_id=session_id,
-            role="user",
-            content=request.message,
-            metadata={
-                "confidence": result.get("confidence", 0.0),
-                "requires_escalation": result.get("requires_escalation", False),
-                "timestamp": datetime.now().isoformat(),
-                "agent_type": "test"
-            }
-        )
-        
-        await session_manager.add_message(
-            session_id=session_id,
-            role="assistant",
-            content=result["response"],
-            metadata={
-                "confidence": result.get("confidence", 0.0),
-                "query_type": result.get("query_type"),
-                "sources_count": len(result.get("sources", [])),
-                "requires_escalation": result.get("requires_escalation", False),
-                "timestamp": datetime.now().isoformat(),
-                "agent_type": "test"
-            }
-        )
-        
+        # Messages already stored by orchestrator — no duplicate writes
+
         # Update session metadata if search was performed
         if "search_type" in result:
             search_info = {

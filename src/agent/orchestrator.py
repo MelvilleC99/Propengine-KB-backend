@@ -8,6 +8,7 @@ OPTIMIZED: Single query intelligence call for follow-up detection + enhancement
 """
 
 from typing import Dict, List, Optional
+import asyncio
 import logging
 import re
 import time
@@ -200,7 +201,8 @@ class Agent:
                     "escalated": False
                 }
 
-                await self.session_manager.add_message(session_id, "assistant", response, metadata)
+                # Fire-and-forget: don't make user wait for session write
+                asyncio.create_task(self.session_manager.add_message(session_id, "assistant", response, metadata))
 
                 return {
                     "response": response,
@@ -354,8 +356,9 @@ class Agent:
                     "escalated": True
                 }
                 
-                await self.session_manager.add_message(session_id, "assistant", fallback_response, metadata)
-                
+                # Fire-and-forget: don't make user wait for session write
+                asyncio.create_task(self.session_manager.add_message(session_id, "assistant", fallback_response, metadata))
+
                 return {
                     "response": fallback_response,
                     "confidence": 0.0,
@@ -454,12 +457,11 @@ class Agent:
                 "user_feedback": None
             }
             
-            # === STEP 14: Store assistant message ===
-            await self.session_manager.add_message(session_id, "assistant", response, metadata)
-            
-            # === STEP 15: Track analytics ===
-            self.kb_analytics.track_kb_usage(sources, query, best_confidence, session_id)
-            
+            # === STEP 14: Store assistant message + track analytics (fire-and-forget) ===
+            # Don't make user wait for these writes — they happen in the background
+            asyncio.create_task(self.session_manager.add_message(session_id, "assistant", response, metadata))
+            asyncio.create_task(asyncio.to_thread(self.kb_analytics.track_kb_usage, sources, query, best_confidence, session_id))
+
             logger.info(f"✅ Response generated (confidence: {best_confidence:.2f}, escalation: {requires_escalation}, time: {elapsed_ms:.0f}ms)")
 
             # === STEP 16: Build context debug info ===
@@ -517,8 +519,9 @@ class Agent:
                 "error": str(e)
             }
             
-            await self.session_manager.add_message(session_id, "assistant", error_response, metadata)
-            
+            # Fire-and-forget: don't make user wait for error logging
+            asyncio.create_task(self.session_manager.add_message(session_id, "assistant", error_response, metadata))
+
             return {
                 "response": error_response,
                 "confidence": 0.0,

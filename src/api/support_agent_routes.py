@@ -95,42 +95,11 @@ async def support_agent(request: SupportAgentRequest, http_request: Request):
                 "user_type": source.get("user_type")
             })
         
-        # Log only escalations and low confidence for support staff
-        should_log = (
-            result.get("requires_escalation", False) or
-            result.get("confidence", 1.0) < 0.7
-        )
-        
-        if should_log:
-            await session_manager.add_message(
-                session_id=session_id,
-                role="user",
-                content=request.message,
-                metadata={
-                    "confidence": result.get("confidence", 0.0),
-                    "requires_escalation": result.get("requires_escalation", False),
-                    "timestamp": datetime.now().isoformat(),
-                    "agent_type": "support"
-                }
-            )
-            
-            await session_manager.add_message(
-                session_id=session_id,
-                role="assistant",
-                content=result["response"],
-                metadata={
-                    "confidence": result.get("confidence", 0.0),
-                    "query_type": result.get("query_type"),
-                    "sources_count": len(clean_sources),
-                    "requires_escalation": result.get("requires_escalation", False),
-                    "timestamp": datetime.now().isoformat(),
-                    "agent_type": "support"
-                }
-            )
-        
-        # Log escalations
+        # Log escalation/low confidence (messages already stored by orchestrator)
         if result.get("requires_escalation", False):
             logger.warning(f"⚠️ Support Agent - Escalation needed for query: {request.message[:50]}")
+        elif result.get("confidence", 1.0) < 0.7:
+            logger.warning(f"⚠️ Support Agent - Low confidence ({result.get('confidence', 0):.2f}) for: {request.message[:50]}")
         
         logger.info(f"✅ Support Agent - Response generated with {len(clean_sources)} sources")
         
