@@ -432,7 +432,7 @@ class Agent:
             ]
             response_indicates_failure = any(phrase in response.lower() for phrase in failure_phrases)
 
-            requires_escalation = best_confidence < 0.7 or (response_indicates_failure and len(sources) == 0)
+            requires_escalation = best_confidence < 0.7 or response_indicates_failure
 
             # Extract related documents from sources for follow-up awareness
             related_documents = []
