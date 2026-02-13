@@ -10,8 +10,27 @@ This module handles intelligent chunking of different entry types:
 
 from typing import Dict, Any, List, Union
 import logging
+import re
 
 logger = logging.getLogger(__name__)
+
+# AstraDB indexed string field limit is 8000 bytes — use 7500 with buffer
+ASTRA_MAX_CONTENT_BYTES = 7500
+
+
+def _strip_html(text: str) -> str:
+    """Strip HTML tags and decode entities from content."""
+    if not text:
+        return ""
+    # Remove HTML tags
+    clean = re.sub(r'<[^>]+>', ' ', text)
+    # Decode common HTML entities
+    clean = clean.replace('&nbsp;', ' ').replace('&amp;', '&')
+    clean = clean.replace('&lt;', '<').replace('&gt;', '>')
+    clean = clean.replace('&quot;', '"').replace('&#39;', "'")
+    # Collapse whitespace
+    clean = re.sub(r'\s+', ' ', clean).strip()
+    return clean
 
 
 def _to_string(value: Union[str, list, dict, None]) -> str:
@@ -111,15 +130,15 @@ def chunk_definition(entry: Dict[str, Any]) -> List[Chunk]:
     """
     Create single chunk for definition entries.
     Definitions are always short and represent one concept.
-    
+
     Args:
         entry: Definition entry
-        
+
     Returns:
         List with single chunk
     """
-    # Use pre-built content from frontend
-    content = entry.get("content", "")
+    # Use pre-built content from frontend (strip HTML)
+    content = _strip_html(entry.get("content", ""))
     
     # Fallback: Build from rawFormData if content is missing (shouldn't happen)
     if not content:
@@ -174,15 +193,15 @@ def chunk_error(entry: Dict[str, Any]) -> List[Chunk]:
     """
     Create single chunk for error entries.
     Errors are usually short and represent one problem + solution.
-    
+
     Args:
         entry: Error entry
-        
+
     Returns:
         List with single chunk
     """
-    # Use pre-built content from frontend
-    content = entry.get("content", "")
+    # Use pre-built content from frontend (strip HTML)
+    content = _strip_html(entry.get("content", ""))
     
     # Fallback: Build from rawFormData if content is missing (shouldn't happen)
     if not content:
@@ -285,11 +304,15 @@ def chunk_how_to(entry: Dict[str, Any]) -> List[Chunk]:
     
     # If content exists and is reasonably sized, use it as a single chunk
     if content:
-        # Rough token estimate (words * 1.3)
+        # Strip HTML tags (frontend editor produces HTML content)
+        content = _strip_html(content)
+
+        # Check both token count AND byte size
         estimated_tokens = len(content.split()) * 1.3
-        
-        if estimated_tokens < 2000:  # Single chunk for reasonable size
-            logger.info(f"Using single chunk for how_to entry {entry_id} ({estimated_tokens:.0f} tokens)")
+        content_bytes = len(content.encode('utf-8'))
+
+        if estimated_tokens < 2000 and content_bytes < ASTRA_MAX_CONTENT_BYTES:
+            logger.info(f"Using single chunk for how_to entry {entry_id} ({estimated_tokens:.0f} tokens, {content_bytes} bytes)")
             
             # Add title as header if not already there
             # Check for "How to:" prefix, not exact title match
@@ -317,11 +340,16 @@ def chunk_how_to(entry: Dict[str, Any]) -> List[Chunk]:
             
             return [chunk]
         else:
-            logger.info(f"Content too large ({estimated_tokens:.0f} tokens), falling back to section-based chunking")
+            logger.info(f"Content too large ({estimated_tokens:.0f} tokens, {content_bytes} bytes), falling back to section-based chunking")
     
     # Fallback: Build sections from rawFormData for large content or missing content field
     logger.warning(f"Building how_to chunks from rawFormData for entry {entry_id}")
     raw_data = entry.get("rawFormData", {})
+
+    # If no rawFormData, split the large content by size
+    if not raw_data:
+        logger.info(f"No rawFormData, splitting large content by size for {entry_id}")
+        return _split_by_size(content or "", entry)
     
     # Build sections
     sections = []
@@ -443,15 +471,15 @@ def chunk_how_to(entry: Dict[str, Any]) -> List[Chunk]:
 def chunk_single(entry: Dict[str, Any]) -> List[Chunk]:
     """
     Fallback: Create single chunk for entries without clear structure.
-    
+
     Args:
         entry: KB entry
-        
+
     Returns:
         List with single chunk
     """
-    # Try pre-built content first
-    content = entry.get("content", "")
+    # Try pre-built content first (strip HTML)
+    content = _strip_html(entry.get("content", ""))
     
     # Fallback: Combine from rawFormData if no content field
     if not content:
@@ -495,6 +523,74 @@ def chunk_single(entry: Dict[str, Any]) -> List[Chunk]:
     logger.info(f"Created single chunk with {len(content)} characters")
     
     return [chunk]
+
+
+def _split_by_size(content: str, entry: Dict[str, Any]) -> List[Chunk]:
+    """Split content into chunks that fit within AstraDB's size limit."""
+    entry_id = entry.get("id")
+    entry_title = entry.get("title", "Untitled")
+    entry_type = entry.get("type", "unknown")
+
+    # Split on sentence boundaries (period + space), then group into chunks
+    sentences = re.split(r'(?<=\.)\s+', content)
+    chunks = []
+    current_chunk = ""
+
+    for sentence in sentences:
+        test = (current_chunk + " " + sentence).strip() if current_chunk else sentence
+        if len(test.encode('utf-8')) > ASTRA_MAX_CONTENT_BYTES and current_chunk:
+            chunks.append(current_chunk)
+            current_chunk = sentence
+        else:
+            current_chunk = test
+
+    if current_chunk:
+        chunks.append(current_chunk)
+
+    # If still no chunks (single giant sentence), hard split by bytes
+    if len(chunks) == 1 and len(chunks[0].encode('utf-8')) > ASTRA_MAX_CONTENT_BYTES:
+        text = chunks[0]
+        chunks = []
+        while text:
+            # Take up to max bytes, then find last space before that
+            encoded = text.encode('utf-8')
+            if len(encoded) <= ASTRA_MAX_CONTENT_BYTES:
+                chunks.append(text)
+                break
+            cut = ASTRA_MAX_CONTENT_BYTES
+            # Decode safely and find last space
+            segment = encoded[:cut].decode('utf-8', errors='ignore')
+            last_space = segment.rfind(' ')
+            if last_space > 0:
+                chunks.append(segment[:last_space])
+                text = text[last_space:].strip()
+            else:
+                chunks.append(segment)
+                text = text[len(segment):].strip()
+
+    total = len(chunks)
+    logger.info(f"Split content into {total} size-based chunks for {entry_id}")
+
+    return [
+        Chunk(
+            content=f"{entry_title}\n\n{chunk_text}" if i == 0 else chunk_text,
+            chunk_index=i,
+            total_chunks=total,
+            section_type=f"part_{i+1}",
+            parent_id=entry_id,
+            parent_title=entry_title,
+            metadata={
+                "entryType": entry_type,
+                "category": entry.get("category"),
+                "userType": entry.get("metadata", {}).get("userType", "internal"),
+                "product": entry.get("metadata", {}).get("product", "property_engine"),
+                "tags": entry.get("metadata", {}).get("tags", []),
+                "title": entry_title,
+                "related_documents": entry.get("metadata", {}).get("related_documents", [])
+            }
+        )
+        for i, chunk_text in enumerate(chunks)
+    ]
 
 
 def _summarize(text: str, max_length: int = 100) -> str:

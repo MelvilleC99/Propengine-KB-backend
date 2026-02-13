@@ -186,14 +186,17 @@ class Agent:
             logger.log_query_classification(query_type, classification_confidence)
             self.metrics_collector.record_classification(query_type, classification_confidence)
 
-            # === STEP 4: Handle greetings (no search needed) ===
-            if query_type == "greeting":
-                response = await self.response_generator.generate_greeting_response()
+            # === STEP 4: Handle greetings & farewells (no search needed) ===
+            if query_type in ("greeting", "farewell"):
+                if query_type == "greeting":
+                    response = await self.response_generator.generate_greeting_response()
+                else:
+                    response = await self.response_generator.generate_farewell_response()
 
                 elapsed_ms = (time.time() - start_time) * 1000
                 metadata = {
                     "query_type": query_type,
-                    "category": "greeting",
+                    "category": query_type,
                     "confidence_score": 1.0,
                     "sources_found": 0,
                     "sources_used": [],

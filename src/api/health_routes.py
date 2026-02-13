@@ -79,30 +79,33 @@ async def check_firebase() -> Dict[str, Any]:
 
 
 async def check_astra() -> Dict[str, Any]:
-    """Check AstraDB vector database connection"""
+    """Check AstraDB vector database connection with a real query"""
     try:
         from src.database.astra_client import astra_client
-        
+
         start = time.time()
-        
-        if astra_client.is_connected():
-            response_time = (time.time() - start) * 1000
-            
-            return {
-                "status": "healthy",
-                "message": "Vector store connected",
-                "response_time_ms": round(response_time, 2)
-            }
-        else:
+
+        if not astra_client.is_connected():
             return {
                 "status": "down",
-                "message": "Vector store not connected",
+                "message": "Vector store not initialized",
                 "response_time_ms": None
             }
+
+        # Actually query the collection to verify the connection is live
+        collection = astra_client._vector_store.astra_env.collection
+        collection.find_one({}, projection={"_id": 1})
+        response_time = (time.time() - start) * 1000
+
+        return {
+            "status": "healthy",
+            "message": "Vector store connected",
+            "response_time_ms": round(response_time, 2)
+        }
     except Exception as e:
         return {
             "status": "down",
-            "message": f"Connection failed: {str(e)}",
+            "message": f"Connection failed: {str(e)[:100]}",
             "response_time_ms": None
         }
 
@@ -144,24 +147,18 @@ async def check_openai_chat() -> Dict[str, Any]:
 
 
 async def check_openai_embeddings() -> Dict[str, Any]:
-    """Check OpenAI embeddings endpoint"""
+    """Check OpenAI embeddings endpoint using the app's actual embeddings instance"""
     try:
-        from langchain_openai import OpenAIEmbeddings
+        from src.database.astra_client import astra_client
         from src.config.settings import settings
-        
+
         start = time.time()
-        
-        embeddings = OpenAIEmbeddings(
-            openai_api_key=settings.OPENAI_API_KEY,
-            base_url=settings.OPENAI_BASE_URL,
-            model=settings.EMBEDDING_MODEL,
-            timeout=10
-        )
-        
-        # Quick test embedding
+
+        # Use the same embeddings instance the app uses (not a throwaway)
+        embeddings = astra_client.get_embeddings()
         result = await embeddings.aembed_query("test")
         response_time = (time.time() - start) * 1000
-        
+
         return {
             "status": "healthy",
             "message": "Embeddings working",
@@ -170,19 +167,21 @@ async def check_openai_embeddings() -> Dict[str, Any]:
             "response_time_ms": round(response_time, 2)
         }
     except Exception as e:
+        from src.config.settings import settings as _settings
         error_msg = str(e)
-        # Check for specific error types
         if "404" in error_msg or "DeploymentNotFound" in error_msg:
-            message = f"Deployment not found for model: {settings.EMBEDDING_MODEL if 'settings' in locals() else 'unknown'}"
+            message = f"Deployment not found for model: {_settings.EMBEDDING_MODEL}"
         elif "timeout" in error_msg.lower():
             message = "Embeddings endpoint timeout"
+        elif "500" in error_msg:
+            message = f"Embeddings API returned 500 (proxy or OpenAI issue)"
         else:
             message = f"Embeddings failed: {error_msg[:100]}"
-        
+
         return {
             "status": "down",
             "message": message,
-            "model": settings.EMBEDDING_MODEL if 'settings' in locals() else "unknown",
+            "model": _settings.EMBEDDING_MODEL,
             "dimensions": None,
             "response_time_ms": None
         }

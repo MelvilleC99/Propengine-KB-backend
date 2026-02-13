@@ -131,3 +131,7 @@ class ResponseGenerator:
     async def generate_greeting_response(self) -> str:
         """Generate friendly greeting response"""
         return "Hello! I'm here to help you with PropertyEngine. What would you like to know?"
+
+    async def generate_farewell_response(self) -> str:
+        """Generate friendly farewell response"""
+        return "You're welcome! If you need anything else, feel free to ask anytime."

@@ -19,6 +19,14 @@ class QueryClassifier:
             r"^(hi|hello|hey|good morning|good afternoon|good evening)[\s\.,!?]*$",
             r"^(hi|hello|hey)[\s\.,!?]*(there|everyone|team)?[\s\.,!?]*$"
         ],
+        "farewell": [
+            # Only match short standalone farewells (< ~6 words, no question mark)
+            r"^(thanks|thank you|thanx|thx|cheers|ta)[\s\.,!]*$",
+            r"^(ok|okay|great|cool|perfect|awesome|brilliant|lovely)?\s*(thanks|thank you|cheers)[\s\.,!]*$",
+            r"^(bye|goodbye|good bye|see you|later)[\s\.,!]*$",
+            r"^(that'?s? all|nothing else|all good|i'?m good|no thanks|no thank you)[\s\.,!]*$",
+            r"^(appreciate it|much appreciated)[\s\.,!]*$",
+        ],
         "error": [
             r"\berror\s*\d+\b",  # Match "error 405", "error405", etc.
             r"\berror\b",
