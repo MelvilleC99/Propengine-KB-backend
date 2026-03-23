@@ -385,7 +385,34 @@ class Agent:
             rerank_time_ms = (time.time() - rerank_start) * 1000
             logger.info(f"📊 Re-ranked {len(results)} results")
             self.metrics_collector.record_reranking(rerank_time_ms)
-            
+
+            # === STEP 9.5: Detect if clarifying question needed ===
+            # Check if results are ambiguous and we should ask user to narrow down
+            clarification_type = None
+            if len(results) >= 3:
+                top_scores = [r.get("similarity_score", 0.0) for r in results[:4]]
+                score_spread = max(top_scores) - min(top_scores) if len(top_scores) >= 2 else 1.0
+                query_lower = query.lower().strip()
+                word_count = len(query_lower.split())
+
+                # Query is vague if it's short and has no specific identifiers
+                has_specific_id = bool(re.search(
+                    r'\b(error\s*\d+|\d{3,4}|rc[-\s]?\d+|reason\s*code|code\s*\d+)\b',
+                    query_lower
+                ))
+                is_vague = word_count <= 6 and not has_specific_id
+
+                if score_spread < 0.15:
+                    if query_type == "error":
+                        # Error queries: ask for reason code / error message
+                        if not has_specific_id:
+                            clarification_type = "error_specifics"
+                            logger.info(f"🔍 Ambiguous error query — asking for specifics (spread={score_spread:.3f}, results={len(results)})")
+                    elif query_type in ("howto", "workflow", "general", "definition") and is_vague:
+                        # Broad topic queries: ask for scope preference
+                        clarification_type = "scope_selection"
+                        logger.info(f"🔍 Broad topic query — asking for scope (spread={score_spread:.3f}, results={len(results)})")
+
             # === STEP 10: Build context from results ===
             contexts = self.context_builder.extract_contexts(results, query)
             sources = self.context_builder.build_sources(results)
@@ -406,7 +433,8 @@ class Agent:
             response = await self.response_generator.generate_response(
                 query, contexts, conversation_context,
                 session_id=session_id,  # For cost tracking
-                search_results=results  # NEW: Pass results for source attribution
+                search_results=results,  # For source attribution
+                clarification_type=clarification_type  # Ask for specifics if ambiguous
             )
             self.metrics_collector.record_response_generation()  # Records timing
             

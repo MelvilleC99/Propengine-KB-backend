@@ -38,7 +38,8 @@ class ResponseGenerator:
         contexts: List[str],
         conversation_context: str = "",
         session_id: Optional[str] = None,  # For cost tracking
-        search_results: Optional[List[Dict]] = None  # NEW: For source attribution
+        search_results: Optional[List[Dict]] = None,  # For source attribution
+        clarification_type: Optional[str] = None  # "error_specifics", "scope_selection", or None
     ) -> str:
         """
         Generate response using LLM with retrieved context
@@ -49,6 +50,7 @@ class ResponseGenerator:
             conversation_context: Previous conversation history
             session_id: Session ID for cost tracking
             search_results: Raw search results with metadata for source attribution
+            clarification_type: Type of clarification to request, or None for normal response
 
         Returns:
             Generated response string
@@ -89,6 +91,27 @@ class ResponseGenerator:
             )
         )
 
+        # Append clarification instruction based on ambiguity type
+        if clarification_type == "error_specifics":
+            full_prompt += (
+                "\n\nIMPORTANT: The search results contain multiple possible causes for this issue. "
+                "Give a brief, helpful overview of the most common causes (top 2-3 only), then ask "
+                "the user if they are seeing a specific reason code, error code, or error message on "
+                "screen, or ask them to describe exactly what happens when the issue occurs. "
+                "Keep your response concise — this helps narrow down the right solution."
+            )
+        elif clarification_type == "scope_selection":
+            full_prompt += (
+                "\n\nIMPORTANT: There is a lot of information on this topic in the knowledge base. "
+                "Instead of giving a long answer, briefly acknowledge the topic and ask the user what "
+                "would be most helpful. Offer them these options naturally (don't use bullet points, "
+                "keep it conversational):\n"
+                "- A broad overview of how it works\n"
+                "- Step-by-step instructions for a specific part\n"
+                "- Help with a specific issue or error they're experiencing\n"
+                "Keep it to 2-3 sentences max. Do NOT start answering the question yet."
+            )
+
         logger.debug(f"Generating response for: {query[:50]}...")
 
         response = await self.llm.ainvoke([HumanMessage(content=full_prompt)])
@@ -124,8 +147,9 @@ class ResponseGenerator:
         logger.info(f"⚠️ No KB results for: {query[:50]} — returning fixed fallback (no LLM call)")
 
         return (
-            "I don't have information about that in our knowledge base yet. "
-            "Would you like me to escalate this to our support team for further assistance?"
+            "I couldn't find an exact match for that. Do you have a specific reason code or "
+            "error message, or can you describe exactly what you're seeing? That might help me "
+            "find the right article. Otherwise, I can escalate this to our support team."
         )
     
     async def generate_greeting_response(self) -> str:
