@@ -3,8 +3,11 @@ PropEngine Support Agent - Main Application Entry Point
 Clean, modular FastAPI backend with intelligent query routing
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.exception_handlers import http_exception_handler
+from starlette.exceptions import HTTPException as StarletteHTTPException
 import logging
 from contextlib import asynccontextmanager
 from src.config.settings import settings
@@ -105,6 +108,26 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Global error handling — defines, in one place, how this app turns errors into responses.
+# Goal: never leak internal error detail to clients in production; keep full detail for us in logs.
+
+@app.exception_handler(StarletteHTTPException)
+async def safe_http_exception_handler(request: Request, exc: StarletteHTTPException):
+    # Server errors (5xx): log the real detail privately, return a generic message in production.
+    if exc.status_code >= 500:
+        logger.error(f"{exc.status_code} on {request.method} {request.url.path}: {exc.detail}")
+        if not settings.DEBUG:
+            return JSONResponse(status_code=exc.status_code, content={"detail": "Internal server error"})
+    # Client errors (404, 409, etc.) and local DEBUG mode: keep FastAPI's normal, safe behavior.
+    return await http_exception_handler(request, exc)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    # A truly unexpected error that no route caught — log the full traceback, return a generic message.
+    logger.error(f"Unhandled error on {request.method} {request.url.path}", exc_info=True)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 # Include routers
 app.include_router(health_routes.router, tags=["health"])  # Health check endpoints

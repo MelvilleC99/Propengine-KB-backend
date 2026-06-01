@@ -39,9 +39,10 @@ async def check_redis() -> Dict[str, Any]:
                 "response_time_ms": 0
             }
     except Exception as e:
+        logger.warning(f"Redis health check failed: {e}")
         return {
             "status": "down",
-            "message": f"Connection failed: {str(e)}",
+            "message": "Redis unavailable",
             "response_time_ms": None
         }
 
@@ -71,9 +72,10 @@ async def check_firebase() -> Dict[str, Any]:
                 "response_time_ms": None
             }
     except Exception as e:
+        logger.warning(f"Firebase health check failed: {e}")
         return {
             "status": "down",
-            "message": f"Connection failed: {str(e)}",
+            "message": "Firebase unavailable",
             "response_time_ms": None
         }
 
@@ -103,9 +105,10 @@ async def check_astra() -> Dict[str, Any]:
             "response_time_ms": round(response_time, 2)
         }
     except Exception as e:
+        logger.warning(f"AstraDB health check failed: {e}")
         return {
             "status": "down",
-            "message": f"Connection failed: {str(e)[:100]}",
+            "message": "Vector store unavailable",
             "response_time_ms": None
         }
 
@@ -138,9 +141,10 @@ async def check_openai_chat() -> Dict[str, Any]:
             "response_time_ms": round(response_time, 2)
         }
     except Exception as e:
+        logger.warning(f"OpenAI chat health check failed: {e}")
         return {
             "status": "down",
-            "message": f"Chat endpoint failed: {str(e)}",
+            "message": "Chat endpoint unavailable",
             "model": settings.OPENAI_MODEL if 'settings' in locals() else "unknown",
             "response_time_ms": None
         }
@@ -168,6 +172,7 @@ async def check_openai_embeddings() -> Dict[str, Any]:
         }
     except Exception as e:
         from src.config.settings import settings as _settings
+        logger.warning(f"OpenAI embeddings health check failed: {e}")
         error_msg = str(e)
         if "404" in error_msg or "DeploymentNotFound" in error_msg:
             message = f"Deployment not found for model: {_settings.EMBEDDING_MODEL}"
@@ -176,7 +181,7 @@ async def check_openai_embeddings() -> Dict[str, Any]:
         elif "500" in error_msg:
             message = f"Embeddings API returned 500 (proxy or OpenAI issue)"
         else:
-            message = f"Embeddings failed: {error_msg[:100]}"
+            message = "Embeddings endpoint unavailable"
 
         return {
             "status": "down",

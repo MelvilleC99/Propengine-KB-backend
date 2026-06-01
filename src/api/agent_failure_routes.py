@@ -283,4 +283,4 @@ async def fd_ticket_closed(request: Request):
 
     except Exception as e:
         logger.error(f"❌ Webhook error: {e}")
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Internal server error"}

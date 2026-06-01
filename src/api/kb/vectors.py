@@ -56,7 +56,7 @@ async def sync_entry(entry_id: str):
             success=False,
             message="Failed to sync entry",
             entry_id=entry_id,
-            error=str(e)
+            error="Internal error"
         )
 
 

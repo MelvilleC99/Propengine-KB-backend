@@ -281,7 +281,7 @@ async def get_redis_stats():
         logger.error(f"Error getting Redis stats: {e}")
         return {
             "status": "error",
-            "error": str(e),
+            "error": "Failed to retrieve Redis stats",
             "timestamp": datetime.now().isoformat()
         }
 

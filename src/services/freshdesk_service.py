@@ -8,6 +8,16 @@ from src.config.settings import settings
 logger = logging.getLogger(__name__)
 
 
+def _mask_email(email: str) -> str:
+    """Mask an email for safe logging: 'jane@gmail.com' -> 'ja****@gmail.com'."""
+    try:
+        local, domain = email.split("@", 1)
+        prefix = local[:2] if len(local) >= 2 else local
+        return f"{prefix}****@{domain}"
+    except (ValueError, AttributeError):
+        return "****"
+
+
 class FreshdeskService:
     """
     Creates support tickets in Freshdesk
@@ -113,7 +123,7 @@ class FreshdeskService:
 
             logger.info(f"🎫 Creating Freshdesk ticket:")
             logger.info(f"   Subject: {subject[:50]}...")
-            logger.info(f"   Requester: {name} <{email}>")
+            logger.info(f"   Requester: {name} <{_mask_email(email)}>")
             logger.info(f"   Priority: {priority}")
             
             async with httpx.AsyncClient() as client:
@@ -195,7 +205,7 @@ class FreshdeskService:
         
         logger.info(f"📋 Escalation ticket data:")
         logger.info(f"   Query: {query[:50]}...")
-        logger.info(f"   User Email: {user_email}")
+        logger.info(f"   User Email: {_mask_email(user_email)}")
         logger.info(f"   User Name: {user_name}")
         logger.info(f"   Agency: {user_agency}")
         logger.info(f"   Office: {user_office}")

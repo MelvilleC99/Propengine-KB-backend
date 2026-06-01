@@ -17,6 +17,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/users", tags=["users"])
 
 
+def _mask_email(email: str) -> str:
+    """Mask an email for safe logging: 'jane@gmail.com' -> 'ja****@gmail.com'."""
+    try:
+        local, domain = email.split("@", 1)
+        prefix = local[:2] if len(local) >= 2 else local
+        return f"{prefix}****@{domain}"
+    except (ValueError, AttributeError):
+        return "****"
+
+
 # ==================== REQUEST/RESPONSE MODELS ====================
 
 class CreateUserRequest(BaseModel):
@@ -65,7 +75,7 @@ async def create_user(request: CreateUserRequest):
         db = get_firestore_client()
 
         # 1. Create user in Firebase Auth
-        logger.info(f"Creating Firebase Auth user: {request.email}")
+        logger.info("Creating new Firebase Auth user")
 
         user_record = auth.create_user(
             email=request.email,
@@ -102,7 +112,7 @@ async def create_user(request: CreateUserRequest):
         # Use email as document ID (matching Next.js logic)
         db.collection("users").document(request.email).set(user_data)
 
-        logger.info(f"✅ Firestore user document created: {request.email}")
+        logger.info(f"✅ Firestore user document created: uid={user_record.uid}")
 
         return UserResponse(
             success=True,
@@ -117,7 +127,7 @@ async def create_user(request: CreateUserRequest):
         )
 
     except auth.EmailAlreadyExistsError:
-        logger.warning(f"User already exists: {request.email}")
+        logger.warning(f"User already exists: {_mask_email(request.email)}")
         raise HTTPException(
             status_code=409,
             detail=f"User with email {request.email} already exists"
@@ -160,7 +170,7 @@ async def update_user(email: str, request: UpdateUserRequest):
 
         if auth_updates:
             auth.update_user(user_record.uid, **auth_updates)
-            logger.info(f"✅ Firebase Auth user updated: {email}")
+            logger.info(f"✅ Firebase Auth user updated: uid={user_record.uid}")
 
         # 3. Update Firestore document
         firestore_updates = {"updated_at": datetime.now()}
@@ -185,7 +195,7 @@ async def update_user(email: str, request: UpdateUserRequest):
             firestore_updates["role"] = request.role
 
         db.collection("users").document(email).update(firestore_updates)
-        logger.info(f"✅ Firestore user document updated: {email}")
+        logger.info(f"✅ Firestore user document updated: uid={user_record.uid}")
 
         return UserResponse(
             success=True,
@@ -221,11 +231,11 @@ async def delete_user(email: str):
 
         # 2. Delete from Firebase Auth
         auth.delete_user(user_record.uid)
-        logger.info(f"✅ Firebase Auth user deleted: {email}")
+        logger.info(f"✅ Firebase Auth user deleted: uid={user_record.uid}")
 
         # 3. Delete from Firestore
         db.collection("users").document(email).delete()
-        logger.info(f"✅ Firestore user document deleted: {email}")
+        logger.info(f"✅ Firestore user document deleted: uid={user_record.uid}")
 
         return UserResponse(
             success=True,

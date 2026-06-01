@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     # API Configuration
     API_HOST: str = os.getenv("API_HOST", "0.0.0.0")
     API_PORT: int = int(os.getenv("API_PORT", "8000"))
-    DEBUG: bool = os.getenv("DEBUG", "true").lower() == "true"
+    DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
     
     # AstraDB Configuration

@@ -138,6 +138,6 @@ async def support_agent_health():
         logger.error(f"Health check error: {e}")
         return {
             "status": "unhealthy",
-            "error": str(e),
+            "error": "Health check failed",
             "timestamp": datetime.now().isoformat()
         }
