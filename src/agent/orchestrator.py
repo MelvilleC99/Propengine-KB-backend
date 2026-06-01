@@ -186,12 +186,14 @@ class Agent:
             logger.log_query_classification(query_type, classification_confidence)
             self.metrics_collector.record_classification(query_type, classification_confidence)
 
-            # === STEP 4: Handle greetings & farewells (no search needed) ===
-            if query_type in ("greeting", "farewell"):
+            # === STEP 4: Handle greetings, farewells & escalation (no search needed) ===
+            if query_type in ("greeting", "farewell", "escalation"):
                 if query_type == "greeting":
                     response = await self.response_generator.generate_greeting_response()
-                else:
+                elif query_type == "farewell":
                     response = await self.response_generator.generate_farewell_response()
+                else:
+                    response = await self.response_generator.generate_escalation_response()
 
                 elapsed_ms = (time.time() - start_time) * 1000
                 metadata = {
@@ -201,7 +203,7 @@ class Agent:
                     "sources_found": 0,
                     "sources_used": [],
                     "response_time_ms": elapsed_ms,
-                    "escalated": False
+                    "escalated": query_type == "escalation"
                 }
 
                 # Fire-and-forget: don't make user wait for session write
@@ -212,7 +214,8 @@ class Agent:
                     "confidence": 1.0,
                     "sources": [],
                     "query_type": query_type,
-                    "classification_confidence": classification_confidence
+                    "classification_confidence": classification_confidence,
+                    "requires_escalation": query_type == "escalation"
                 }
 
             # === STEP 5: Follow-up detection + conditional Query Intelligence ===
@@ -387,31 +390,22 @@ class Agent:
             self.metrics_collector.record_reranking(rerank_time_ms)
 
             # === STEP 9.5: Detect if clarifying question needed ===
-            # Check if results are ambiguous and we should ask user to narrow down
+            # Only for genuinely ambiguous error queries — ask for reason code/error message
+            # For non-error queries, the LLM naturally gives an overview and conversation
+            # context handles follow-ups asking for more detail
             clarification_type = None
-            if len(results) >= 3:
+            if len(results) >= 3 and query_type == "error":
                 top_scores = [r.get("similarity_score", 0.0) for r in results[:4]]
                 score_spread = max(top_scores) - min(top_scores) if len(top_scores) >= 2 else 1.0
-                query_lower = query.lower().strip()
-                word_count = len(query_lower.split())
 
-                # Query is vague if it's short and has no specific identifiers
                 has_specific_id = bool(re.search(
                     r'\b(error\s*\d+|\d{3,4}|rc[-\s]?\d+|reason\s*code|code\s*\d+)\b',
-                    query_lower
+                    query.lower().strip()
                 ))
-                is_vague = word_count <= 6 and not has_specific_id
 
-                if score_spread < 0.15:
-                    if query_type == "error":
-                        # Error queries: ask for reason code / error message
-                        if not has_specific_id:
-                            clarification_type = "error_specifics"
-                            logger.info(f"🔍 Ambiguous error query — asking for specifics (spread={score_spread:.3f}, results={len(results)})")
-                    elif query_type in ("howto", "workflow", "general", "definition") and is_vague:
-                        # Broad topic queries: ask for scope preference
-                        clarification_type = "scope_selection"
-                        logger.info(f"🔍 Broad topic query — asking for scope (spread={score_spread:.3f}, results={len(results)})")
+                if score_spread < 0.15 and not has_specific_id:
+                    clarification_type = "error_specifics"
+                    logger.info(f"🔍 Ambiguous error query — asking for specifics (spread={score_spread:.3f}, results={len(results)})")
 
             # === STEP 10: Build context from results ===
             contexts = self.context_builder.extract_contexts(results, query)

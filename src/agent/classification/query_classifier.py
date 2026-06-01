@@ -27,6 +27,11 @@ class QueryClassifier:
             r"^(that'?s? all|nothing else|all good|i'?m good|no thanks|no thank you)[\s\.,!]*$",
             r"^(appreciate it|much appreciated)[\s\.,!]*$",
         ],
+        "escalation": [
+            r"\b(talk|speak|chat)\s+(to|with)\s+(a|an)?\s*(agent|human|person|someone|support|real person)\b",
+            r"\b(escalate|raise a ticket|create a ticket|open a ticket|log a ticket|need a ticket)\b",
+            r"\b(need|want)\s+(a\s+)?(human|real person|actual person|support agent)\b",
+        ],
         "error": [
             r"\berror\s*\d+\b",  # Match "error 405", "error405", etc.
             r"\berror\b",

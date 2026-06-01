@@ -39,7 +39,7 @@ class ResponseGenerator:
         conversation_context: str = "",
         session_id: Optional[str] = None,  # For cost tracking
         search_results: Optional[List[Dict]] = None,  # For source attribution
-        clarification_type: Optional[str] = None  # "error_specifics", "scope_selection", or None
+        clarification_type: Optional[str] = None  # "error_specifics" or None
     ) -> str:
         """
         Generate response using LLM with retrieved context
@@ -100,17 +100,6 @@ class ResponseGenerator:
                 "screen, or ask them to describe exactly what happens when the issue occurs. "
                 "Keep your response concise — this helps narrow down the right solution."
             )
-        elif clarification_type == "scope_selection":
-            full_prompt += (
-                "\n\nIMPORTANT: There is a lot of information on this topic in the knowledge base. "
-                "Instead of giving a long answer, briefly acknowledge the topic and ask the user what "
-                "would be most helpful. Offer them these options naturally (don't use bullet points, "
-                "keep it conversational):\n"
-                "- A broad overview of how it works\n"
-                "- Step-by-step instructions for a specific part\n"
-                "- Help with a specific issue or error they're experiencing\n"
-                "Keep it to 2-3 sentences max. Do NOT start answering the question yet."
-            )
 
         logger.debug(f"Generating response for: {query[:50]}...")
 
@@ -159,3 +148,10 @@ class ResponseGenerator:
     async def generate_farewell_response(self) -> str:
         """Generate friendly farewell response"""
         return "You're welcome! If you need anything else, feel free to ask anytime."
+
+    async def generate_escalation_response(self) -> str:
+        """Generate escalation confirmation response"""
+        return (
+            "I'd be happy to connect you with our support team. "
+            "I'll create a support ticket for you now so that a team member can assist you directly."
+        )
