@@ -67,8 +67,8 @@ async def get_dashboard_metrics(range: str = "7d"):
                     if start <= last_used <= end:
                         kb_stats_filtered.append(data)
                         total_queries += data.get('usage_count', 0)
-                except:
-                    pass
+                except (ValueError, TypeError, AttributeError) as e:
+                    logger.debug(f"Skipping record with unparseable timestamp: {e}")
         
         # Filter feedback by date
         feedback_filtered = []
@@ -80,8 +80,8 @@ async def get_dashboard_metrics(range: str = "7d"):
                     timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
                     if start <= timestamp <= end:
                         feedback_filtered.append(data)
-                except:
-                    pass
+                except (ValueError, TypeError, AttributeError) as e:
+                    logger.debug(f"Skipping record with unparseable timestamp: {e}")
         
         # Filter failures by date
         failures_filtered = []
@@ -93,8 +93,8 @@ async def get_dashboard_metrics(range: str = "7d"):
                     timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
                     if start <= timestamp <= end:
                         failures_filtered.append(data)
-                except:
-                    pass
+                except (ValueError, TypeError, AttributeError) as e:
+                    logger.debug(f"Skipping record with unparseable timestamp: {e}")
         
         # Calculate confidence
         confidence_scores = [f.get('confidence_score') for f in feedback_filtered if isinstance(f.get('confidence_score'), (int, float))]

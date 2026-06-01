@@ -233,7 +233,8 @@ class TokenTracker:
             elif hasattr(response, 'usage'):
                 return response.usage
             return None
-        except:
+        except Exception as e:
+            logger.debug(f"Could not extract usage metadata: {e}")
             return None
     
     def get_session_costs(self, session_id: str) -> Optional[Dict]:

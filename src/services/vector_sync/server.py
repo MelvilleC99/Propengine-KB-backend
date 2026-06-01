@@ -145,8 +145,8 @@ class VectorSyncService:
                     "vectorStatus": "failed",
                     "syncError": str(e)
                 })
-            except:
-                pass
+            except Exception as update_error:
+                logger.warning(f"Could not update Firebase error status for {entry_id}: {update_error}")
             
             return {
                 "success": False,
