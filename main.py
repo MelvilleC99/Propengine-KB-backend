@@ -105,8 +105,11 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    # Least privilege: only the methods/headers the app actually uses.
+    # If the frontend sends another custom header, add it here (symptom: a
+    # CORS error in the browser console naming the blocked header).
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
 )
 
 # Global error handling — defines, in one place, how this app turns errors into responses.
@@ -156,7 +159,7 @@ async def root():
                 "customer": "/api/agent/customer"
             },
             "admin": "/api/admin/stats",
-            "health": "/api/chat/health",
+            "health": "/api/health/",
             "docs": "/docs"
         }
     }
