@@ -17,6 +17,23 @@ logger = logging.getLogger(__name__)
 # AstraDB indexed string field limit is 8000 bytes — use 7500 with buffer
 ASTRA_MAX_CONTENT_BYTES = 7500
 
+# Overlap (in characters) carried from the end of one size-split chunk into the start
+# of the next. Section-based chunks are already semantic units, but size-based splits
+# cut mid-content — a small overlap keeps a concept that spans a boundary retrievable
+# from both chunks instead of being lost at the seam.
+CHUNK_OVERLAP_CHARS = 200
+
+
+def _tail_overlap(text: str, overlap_chars: int = CHUNK_OVERLAP_CHARS) -> str:
+    """Return roughly the last `overlap_chars` of text, snapped to a word boundary."""
+    if not text or len(text) <= overlap_chars:
+        return (text or "").strip()
+    tail = text[-overlap_chars:]
+    space = tail.find(" ")
+    if space > 0:
+        tail = tail[space + 1:]  # start cleanly at a word boundary, not mid-word
+    return tail.strip()
+
 
 def _strip_html(text: str) -> str:
     """Strip HTML tags and decode entities from content."""
@@ -540,7 +557,9 @@ def _split_by_size(content: str, entry: Dict[str, Any]) -> List[Chunk]:
         test = (current_chunk + " " + sentence).strip() if current_chunk else sentence
         if len(test.encode('utf-8')) > ASTRA_MAX_CONTENT_BYTES and current_chunk:
             chunks.append(current_chunk)
-            current_chunk = sentence
+            # Start the next chunk with a tail-overlap of the one we just closed.
+            overlap = _tail_overlap(current_chunk)
+            current_chunk = (overlap + " " + sentence).strip() if overlap else sentence
         else:
             current_chunk = test
 

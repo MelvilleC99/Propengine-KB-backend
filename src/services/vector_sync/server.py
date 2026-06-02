@@ -15,7 +15,13 @@ class VectorSyncService:
     MCP Server for vector sync orchestration.
     Coordinates between Firebase and AstraDB to sync KB entries.
     """
-    
+
+    # Allowed values for the filterable metadata fields. The search side filters on
+    # these exact values, so anything outside the set could never be retrieved —
+    # they are validated/coerced on write in _prepare_chunk_metadata.
+    VALID_USER_TYPES = {"internal", "external"}
+    VALID_ENTRY_TYPES = {"how_to", "workflow", "definition", "error"}
+
     def __init__(self):
         """Initialize Vector Sync MCP with Firebase and AstraDB MCPs"""
         self.firebase = FirebaseService()
@@ -116,24 +122,33 @@ class VectorSyncService:
                     "error": "Failed to store any chunks in AstraDB"
                 }
             
+            all_stored = chunks_stored == len(chunks)
             logger.info(f"✅ Stored {chunks_stored}/{len(chunks)} chunks in AstraDB")
-            
-            # 5. Update Firebase sync status
+
+            # 5. Update Firebase sync status — mark "partial" (not "synced") when some
+            #    chunks failed, so an entry that is missing content isn't silently shown
+            #    as fully synced. "partial" entries are searchable but incomplete.
             await self.firebase.update_entry(entry_id, {
-                "vectorStatus": "synced",
+                "vectorStatus": "synced" if all_stored else "partial",
                 "lastSyncedAt": None,  # Firestore will auto-set server timestamp
-                "syncError": None,
+                "syncError": None if all_stored else f"Only {chunks_stored}/{len(chunks)} chunks stored",
                 "chunksCreated": chunks_stored
             })
-            
-            logger.info(f"✅ Successfully synced entry: {entry_id}")
-            
+
+            if all_stored:
+                logger.info(f"✅ Successfully synced entry: {entry_id}")
+            else:
+                logger.warning(f"⚠️ Partial sync for {entry_id}: {chunks_stored}/{len(chunks)} chunks stored")
+
             return {
                 "success": True,
                 "entry_id": entry_id,
                 "chunks_created": chunks_stored,
                 "total_chunks": len(chunks),
-                "message": f"Entry synced to vector database successfully ({chunks_stored} chunks)"
+                "status": "synced" if all_stored else "partial",
+                "message": (f"Entry synced to vector database successfully ({chunks_stored} chunks)"
+                            if all_stored
+                            else f"Entry partially synced ({chunks_stored}/{len(chunks)} chunks) — re-sync recommended")
             }
             
         except Exception as e:
@@ -269,5 +284,36 @@ class VectorSyncService:
             # related_chunks is an array - keep it
             if related_chunks := chunk.context.get("related_chunks"):
                 metadata["context_related_chunks"] = related_chunks
-        
+
+        # Validate & normalize the filterable fields. This is the single point every
+        # chunk passes through before being written to AstraDB, so enforcing the schema
+        # here guarantees the vector DB only ever contains clean, queryable values —
+        # regardless of how the frontend supplied them.
+
+        # userType: must be one of the known audiences; lowercase; default to the safe
+        # "internal" (never accidentally expose internal content to customers).
+        user_type = str(metadata.get("userType") or "internal").lower()
+        if user_type not in self.VALID_USER_TYPES:
+            logger.warning(
+                f"⚠️ Invalid userType '{user_type}' for {chunk.parent_id} — defaulting to 'internal'"
+            )
+            user_type = "internal"
+        metadata["userType"] = user_type
+
+        # entryType: lowercase to match the search-side filter; warn (don't drop) if it's
+        # an unrecognized type so it surfaces in logs without blocking the sync.
+        entry_type = str(metadata.get("entryType") or "").lower()
+        if entry_type and entry_type not in self.VALID_ENTRY_TYPES:
+            logger.warning(f"⚠️ Unrecognized entryType '{entry_type}' for {chunk.parent_id}")
+        metadata["entryType"] = entry_type
+
+        # category: never store None (that would make the entry invisible to category
+        # filtering). Read from either the top-level or nested location, else default.
+        if not metadata.get("category"):
+            metadata["category"] = (
+                entry.get("category")
+                or entry.get("metadata", {}).get("category")
+                or "general"
+            )
+
         return metadata

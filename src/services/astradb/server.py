@@ -53,7 +53,7 @@ class AstraDBService:
             return {
                 "success": True,
                 "entry_id": entry_id,
-                "dimension": 1536  # text-embedding-3-large dimension
+                "dimension": 1536  # text-embedding-3-small dimension
             }
             
         except Exception as e:

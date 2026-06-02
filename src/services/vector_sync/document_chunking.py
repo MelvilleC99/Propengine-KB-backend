@@ -13,7 +13,7 @@ from typing import Dict, Any, List
 import logging
 
 # Import Chunk class from main chunking module for consistency
-from .chunking import Chunk
+from .chunking import Chunk, _tail_overlap
 
 logger = logging.getLogger(__name__)
 
@@ -271,15 +271,19 @@ def _split_large_section(section: Dict[str, Any], max_chars: int) -> List[Dict[s
         
         if current_length + para_length > max_chars and current_content:
             # Save current chunk and start new one
+            saved_content = "\n\n".join(current_content)
             sub_sections.append({
                 "heading": heading,
-                "content": "\n\n".join(current_content),
+                "content": saved_content,
                 "section_type": section_type,
                 "summary": summary if part_num == 1 else f"Continuation of {heading}",
                 "is_continuation": part_num > 1
             })
-            current_content = [para]
-            current_length = para_length
+            # Carry a tail-overlap of the section we just closed into the next one so a
+            # concept spanning the split boundary stays retrievable from both.
+            overlap = _tail_overlap(saved_content)
+            current_content = [overlap, para] if overlap else [para]
+            current_length = len(overlap) + para_length
             part_num += 1
         else:
             current_content.append(para)
