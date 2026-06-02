@@ -33,8 +33,8 @@ class FeedbackRequest(BaseModel):
     query: str = Field(..., description="The user's original question")
     response: str = Field(..., description="The agent's response")
     
-    # User info
-    agent_id: str = Field(..., description="User's agent ID (e.g., BID-xxx)")
+    # User info — agent_id is optional: external/customer users don't have one
+    agent_id: Optional[str] = Field(None, description="User's agent ID (e.g., BID-xxx); absent for external customers")
     user_email: Optional[str] = Field(None, description="User's email")
     user_name: Optional[str] = Field(None, description="User's display name")
     

@@ -83,7 +83,7 @@ async def customer_agent(request: CustomerAgentRequest, http_request: Request):
             logger.warning(f"⚠️ Customer Agent - Escalation needed (session={session_id})")
 
         logger.info(f"✅ Customer Agent - Response generated (external only)")
-        
+
         # Return minimal response for customers
         return CustomerAgentResponse(
             response=result["response"],

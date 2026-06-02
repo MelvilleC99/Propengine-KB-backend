@@ -23,6 +23,7 @@ from src.agent.context import ContextBuilder
 from src.agent.context.context_responder import ContextResponder
 from src.agent.search import SearchStrategy, ParentDocumentRetrieval
 from src.agent.response import ResponseGenerator
+from src.agent.escalation.escalation_handler import EscalationHandler
 from src.analytics import QueryMetricsCollector, token_tracker
 from src.utils.logging_helper import get_logger
 
@@ -69,6 +70,9 @@ class Agent:
         self.context_builder = ContextBuilder()
         self.context_responder = ContextResponder()
         self.response_generator = ResponseGenerator()
+
+        # Escalation decision (single source of truth — pure rules, no LLM)
+        self.escalation_handler = EscalationHandler()
 
         # Memory & Analytics
         self.session_manager = SessionManager()
@@ -466,16 +470,9 @@ class Agent:
                 logger.warning("⚠️ No cost_breakdown in debug_metrics!")
             
             # === STEP 14: Build metadata ===
-            # Escalation logic: trigger if confidence is low OR response indicates failure
-            failure_phrases = [
-                "couldn't find", "could not find", "unable to find",
-                "don't have information", "no information available",
-                "cannot help", "can't help", "unable to help",
-                "i'm sorry", "i apologize", "unfortunately"
-            ]
-            response_indicates_failure = any(phrase in response.lower() for phrase in failure_phrases)
-
-            requires_escalation = best_confidence < 0.7 or response_indicates_failure
+            # Escalation decision lives in the EscalationHandler (single source of truth).
+            escalation = self.escalation_handler.check_escalation(query_type, results, best_confidence)
+            requires_escalation = escalation["should_escalate"]
 
             # Extract related documents from sources for follow-up awareness
             related_documents = []
@@ -754,14 +751,9 @@ class Agent:
             self.metrics_collector.record_cost_breakdown(token_tracker.get_cost_breakdown_for_session(session_id))
             debug_metrics = self.metrics_collector.finalize_metrics()
 
-            failure_phrases = [
-                "couldn't find", "could not find", "unable to find",
-                "don't have information", "no information available",
-                "cannot help", "can't help", "unable to help",
-                "i'm sorry", "i apologize", "unfortunately",
-            ]
-            response_indicates_failure = any(p in response.lower() for p in failure_phrases)
-            requires_escalation = best_confidence < 0.7 or response_indicates_failure
+            # Escalation decision via the EscalationHandler (single source of truth).
+            escalation = self.escalation_handler.check_escalation(query_type, results, best_confidence)
+            requires_escalation = escalation["should_escalate"]
 
             related_documents = []
             for source in sources:

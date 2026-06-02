@@ -191,10 +191,12 @@ class FreshdeskService:
         # Determine priority (same logic as original)
         priority = self._determine_priority(query, confidence_score)
         
-        # Custom fields - MATCHING ORIGINAL FRONTEND CODE
+        # Custom fields. NOTE: only include fields that actually exist in the Freshdesk
+        # account — sending an unknown cf_* field makes Freshdesk reject the whole ticket
+        # with a 400 ("Unexpected/invalid field"). cf_agency and cf_office are NOT defined
+        # in this account, so they are intentionally omitted (their values still appear in
+        # the ticket description). If you add them in Freshdesk admin, re-add them here.
         custom_fields = {
-            "cf_agency": user_agency or "PropertyEngine",
-            "cf_office": user_office or "Support",
             "cf_category": "Listing",  # Default
             "cf_sub_category": "Other",  # Default
             "cf_case_ownership": "Support",
