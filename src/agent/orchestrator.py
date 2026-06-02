@@ -572,3 +572,230 @@ class Agent:
                 "error": str(e),
                 "requires_escalation": True
             }
+
+    async def process_query_stream(
+        self,
+        query: str,
+        session_id: str,
+        user_info: Optional[Dict] = None,
+        user_type_filter: Optional[str] = None,
+    ):
+        """
+        Streaming variant of process_query. Yields frame dicts in a fixed order:
+            {"type": "session", ...} -> {"type": "sources", ...}
+            -> {"type": "token", ...}* -> {"type": "metadata", ...} -> {"type": "done"}
+        (or {"type": "error", ...} on failure).
+
+        The retrieval/ranking pipeline is identical to process_query; only the final
+        answer is streamed token-by-token. NOTE: this duplicates the orchestration of
+        process_query — they should be unified once the orchestrator is decomposed.
+        """
+        start_time = time.time()
+        self.metrics_collector.start_query(query)
+        yield {"type": "session", "session_id": session_id}
+
+        try:
+            # STEP 1-2: store message + load context (timed)
+            context_load_start = time.time()
+            await self.session_manager.add_message(session_id, "user", query)
+            context_data = self.session_manager.get_context_for_llm(session_id)
+            conversation_context = context_data.get("formatted_context", "")
+            self.metrics_collector.record_context_load((time.time() - context_load_start) * 1000)
+            message_count = context_data.get("message_count", 0)
+            has_summary = context_data.get("has_summary", False)
+            context_length = len(conversation_context)
+
+            # STEP 3: classify
+            self.metrics_collector._start_timer("classification")
+            query_type, classification_confidence = self.classifier.classify(query)
+            self.metrics_collector.record_classification(query_type, classification_confidence)
+
+            # STEP 4: greeting / farewell / escalation — templated, emitted as one chunk
+            if query_type in ("greeting", "farewell", "escalation"):
+                if query_type == "greeting":
+                    text = await self.response_generator.generate_greeting_response()
+                elif query_type == "farewell":
+                    text = await self.response_generator.generate_farewell_response()
+                else:
+                    text = await self.response_generator.generate_escalation_response()
+                self.metrics_collector.record_cost_breakdown(token_tracker.get_cost_breakdown_for_session(session_id))
+                debug_metrics = self.metrics_collector.finalize_metrics()
+                metadata = {
+                    "query_type": query_type, "category": query_type, "confidence_score": 1.0,
+                    "sources_found": 0, "sources_used": [],
+                    "response_time_ms": (time.time() - start_time) * 1000,
+                    "escalated": query_type == "escalation",
+                }
+                _run_in_background(self.session_manager.add_message(session_id, "assistant", text, metadata),
+                                   "session write (greeting/escalation stream)")
+                yield {"type": "sources", "sources": []}
+                yield {"type": "token", "text": text}
+                yield {"type": "metadata", "confidence": 1.0,
+                       "requires_escalation": query_type == "escalation",
+                       "query_type": query_type, "classification_confidence": classification_confidence,
+                       "debug_metrics": debug_metrics}
+                yield {"type": "done"}
+                return
+
+            # STEP 5: follow-up detection + conditional Query Intelligence
+            is_followup = self._is_likely_followup(query, message_count, conversation_context)
+            if is_followup:
+                available_related_docs = []
+                if conversation_context:
+                    recent_messages = self.session_manager.context_cache.get_messages(session_id, limit=5)
+                    for msg in recent_messages:
+                        if msg.get("role") == "assistant":
+                            md = msg.get("metadata", {})
+                            if md.get("related_documents"):
+                                available_related_docs.extend(md.get("related_documents", []))
+                    available_related_docs = list(dict.fromkeys(available_related_docs))
+                self.metrics_collector._start_timer("query_intelligence")
+                analysis = await self.query_intelligence.analyze(
+                    query=query, query_type=query_type, conversation_context=conversation_context,
+                    available_related_docs=available_related_docs, session_id=session_id,
+                )
+                self.metrics_collector.record_query_intelligence(
+                    enhanced_query=analysis.structured_query.enhanced,
+                    category=analysis.structured_query.category,
+                    tags=analysis.structured_query.tags, intent=analysis.structured_query.user_intent,
+                )
+            else:
+                analysis = self._create_skip_qi_analysis(query, query_type)
+                self.metrics_collector.record_query_intelligence(
+                    enhanced_query=query, category=query_type, tags=[], intent="search")
+
+            # STEP 6: answer from conversation context (non-streamed — emitted as one chunk)
+            if analysis.routing == "answer_from_context":
+                response_dict = await self.context_responder.answer_from_conversation(
+                    query=query, conversation_context=conversation_context,
+                    session_id=session_id, metrics_collector=self.metrics_collector)
+                self.metrics_collector.record_cost_breakdown(token_tracker.get_cost_breakdown_for_session(session_id))
+                debug_metrics = self.metrics_collector.finalize_metrics()
+                yield {"type": "sources", "sources": response_dict.get("sources", [])}
+                yield {"type": "token", "text": response_dict.get("response", "")}
+                yield {"type": "metadata",
+                       "confidence": response_dict.get("confidence", 0.9),
+                       "requires_escalation": response_dict.get("requires_escalation", False),
+                       "query_type": query_type, "classification_confidence": classification_confidence,
+                       "debug_metrics": debug_metrics}
+                yield {"type": "done"}
+                return
+
+            structured_query = analysis.structured_query
+
+            # STEP 7: search with fallback
+            results, search_attempts = await self.search_strategy.search_with_fallback(
+                query=structured_query.enhanced, query_type=query_type,
+                user_type_filter=user_type_filter, parent_retrieval_handler=self.parent_retrieval,
+                session_id=session_id)
+
+            # STEP 8: no results — templated fallback
+            if not results:
+                self.metrics_collector.record_results(0, 0, 0.0, [])
+                self.metrics_collector._start_timer("response_generation")
+                text = await self.response_generator.generate_fallback_response(query=query, session_id=session_id)
+                self.metrics_collector.record_response_generation()
+                self.metrics_collector.record_cost_breakdown(token_tracker.get_cost_breakdown_for_session(session_id))
+                debug_metrics = self.metrics_collector.finalize_metrics()
+                metadata = {
+                    "query_type": query_type, "category": structured_query.category,
+                    "confidence_score": 0.0, "sources_found": 0, "sources_used": [],
+                    "response_time_ms": (time.time() - start_time) * 1000, "escalated": True,
+                }
+                _run_in_background(self.session_manager.add_message(session_id, "assistant", text, metadata),
+                                   "session write (fallback stream)")
+                yield {"type": "sources", "sources": []}
+                yield {"type": "token", "text": text}
+                yield {"type": "metadata", "confidence": 0.0, "requires_escalation": True,
+                       "query_type": query_type, "classification_confidence": classification_confidence,
+                       "enhanced_query": structured_query.enhanced, "debug_metrics": debug_metrics}
+                yield {"type": "done"}
+                return
+
+            # STEP 9: rerank
+            rerank_start = time.time()
+            results = self.reranker.rerank_results(results, structured_query.enhanced)
+            self.metrics_collector.record_reranking((time.time() - rerank_start) * 1000)
+
+            # STEP 9.5: clarification detection (ambiguous error queries)
+            clarification_type = None
+            if len(results) >= 3 and query_type == "error":
+                top_scores = [r.get("similarity_score", 0.0) for r in results[:4]]
+                score_spread = max(top_scores) - min(top_scores) if len(top_scores) >= 2 else 1.0
+                has_specific_id = bool(re.search(
+                    r'\b(error\s*\d+|\d{3,4}|rc[-\s]?\d+|reason\s*code|code\s*\d+)\b',
+                    query.lower().strip()))
+                if score_spread < 0.15 and not has_specific_id:
+                    clarification_type = "error_specifics"
+
+            # STEP 10: build context + sources
+            contexts = self.context_builder.extract_contexts(results, query)
+            sources = self.context_builder.build_sources(results)
+            best_confidence = self.context_builder.calculate_best_confidence(results)
+            self.metrics_collector.record_results(
+                sources_found=len(results), sources_used=len(sources),
+                best_confidence=best_confidence, retrieved_chunks=results)
+
+            # Emit sources BEFORE the answer streams (UI can show source cards immediately)
+            yield {"type": "sources", "sources": sources}
+
+            # STEP 11: STREAM the answer token-by-token
+            self.metrics_collector._start_timer("response_generation")
+            response_parts = []
+            async for tok in self.response_generator.generate_response_stream(
+                query, contexts, conversation_context, session_id=session_id,
+                search_results=results, clarification_type=clarification_type):
+                response_parts.append(tok)
+                yield {"type": "token", "text": tok}
+            self.metrics_collector.record_response_generation()
+            response = "".join(response_parts)
+
+            # STEP 12-14: cost, escalation decision, metadata
+            self.metrics_collector.record_cost_breakdown(token_tracker.get_cost_breakdown_for_session(session_id))
+            debug_metrics = self.metrics_collector.finalize_metrics()
+
+            failure_phrases = [
+                "couldn't find", "could not find", "unable to find",
+                "don't have information", "no information available",
+                "cannot help", "can't help", "unable to help",
+                "i'm sorry", "i apologize", "unfortunately",
+            ]
+            response_indicates_failure = any(p in response.lower() for p in failure_phrases)
+            requires_escalation = best_confidence < 0.7 or response_indicates_failure
+
+            related_documents = []
+            for source in sources:
+                related_documents.extend(source.get("metadata", {}).get("related_documents", []))
+            related_documents = list(dict.fromkeys(related_documents))
+
+            metadata = {
+                "query_type": query_type, "category": structured_query.category,
+                "subcategory": structured_query.tags[0] if structured_query.tags else None,
+                "confidence_score": best_confidence, "sources_found": len(results),
+                "sources_used": [s.get("title") for s in sources],
+                "related_documents": related_documents,
+                "response_time_ms": (time.time() - start_time) * 1000,
+                "escalated": requires_escalation, "user_feedback": None,
+            }
+            _run_in_background(self.session_manager.add_message(session_id, "assistant", response, metadata),
+                               "session write (stream)")
+            _run_in_background(asyncio.to_thread(self.kb_analytics.track_kb_usage, sources, query, best_confidence, session_id),
+                               "kb analytics (stream)")
+
+            context_debug = {
+                "conversation_context": conversation_context, "message_count": message_count,
+                "has_summary": has_summary, "context_length": context_length,
+            }
+            yield {"type": "metadata", "confidence": best_confidence,
+                   "requires_escalation": requires_escalation, "query_type": query_type,
+                   "classification_confidence": classification_confidence,
+                   "enhanced_query": structured_query.enhanced,
+                   "query_metadata": {
+                       "category": structured_query.category,
+                       "intent": structured_query.user_intent, "tags": structured_query.tags},
+                   "debug_metrics": debug_metrics, "context_debug": context_debug}
+            yield {"type": "done"}
+
+        except Exception as e:
+            logger.error(f"❌ Error in streaming query: {e}", exc_info=True)
+            yield {"type": "error", "message": "I apologize, but I encountered an error. Please try again."}

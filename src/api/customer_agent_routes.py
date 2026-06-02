@@ -1,6 +1,7 @@
 """Customer Agent API Route - For external customers"""
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Optional, Dict
 from datetime import datetime
@@ -8,6 +9,7 @@ import logging
 from src.agent.orchestrator import Agent
 from src.memory.session_manager import SessionManager
 from src.utils.rate_limiter import check_rate_limit
+from src.api.streaming_utils import ndjson_stream, STREAM_HEADERS
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +102,30 @@ async def customer_agent(request: CustomerAgentRequest, http_request: Request):
             status_code=500,
             detail="We're having trouble processing your request. Please try again or contact support."
         )
+
+
+@router.post("/stream")
+async def customer_agent_stream(request: CustomerAgentRequest, http_request: Request):
+    """
+    Streaming Customer Agent — same pipeline as POST /, streamed as NDJSON frames
+    (session → sources → token* → metadata → done). External entries only.
+    Rate limit (429) is enforced before the stream opens.
+    """
+    check_rate_limit(
+        request=http_request, endpoint_type="query",
+        agent_id=request.user_info.get("agent_id"), user_email=request.user_info.get("email"),
+    )
+    if request.session_id:
+        session = session_manager.get_session(request.session_id)
+        session_id = request.session_id if session else session_manager.create_session(request.user_info)
+    else:
+        session_id = session_manager.create_session(request.user_info)
+
+    gen = agent.process_query_stream(
+        query=request.message, session_id=session_id,
+        user_info=request.user_info, user_type_filter="external",
+    )
+    return StreamingResponse(ndjson_stream(gen), media_type="application/x-ndjson", headers=STREAM_HEADERS)
 
 
 @router.get("/health")

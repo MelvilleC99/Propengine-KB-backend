@@ -116,7 +116,59 @@ class TokenTracker:
         except Exception as e:
             logger.error(f"❌ Error tracking token usage: {e}")
             return None
-    
+
+    def track_estimated_usage(
+        self,
+        input_text: str,
+        output_text: str,
+        model: str,
+        session_id: Optional[str] = None,
+        operation: Optional[str] = None,
+    ) -> Optional[Dict]:
+        """
+        Estimate and record token usage when the provider returns no usage metadata
+        (e.g. streamed responses through a proxy that doesn't support include_usage).
+        Rough heuristic: ~4 characters per token. Keeps streamed responses' cost
+        approximately accounted for instead of $0.
+        """
+        try:
+            input_tokens = max(1, len(input_text) // 4)
+            output_tokens = max(1, len(output_text) // 4)
+            total_tokens = input_tokens + output_tokens
+
+            cost_data = cost_calculator.calculate_chat_cost(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                model=model,
+            )
+
+            if session_id:
+                if session_id not in self.session_costs:
+                    self.session_costs[session_id] = {}
+                if operation not in self.session_costs[session_id]:
+                    self.session_costs[session_id][operation] = {
+                        "input_tokens": 0, "output_tokens": 0, "cost": 0.0,
+                    }
+                self.session_costs[session_id][operation]["input_tokens"] += input_tokens
+                self.session_costs[session_id][operation]["output_tokens"] += output_tokens
+                self.session_costs[session_id][operation]["cost"] += cost_data["total_cost"]
+
+            logger.info(
+                f"💰 {operation or 'LLM'} (estimated) | "
+                f"Input: ~{input_tokens} | Output: ~{output_tokens} | "
+                f"Cost: ~${cost_data['total_cost']:.6f}"
+            )
+            return {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "total_tokens": total_tokens,
+                "cost": cost_data["total_cost"],
+                "estimated": True,
+            }
+        except Exception as e:
+            logger.error(f"❌ Error estimating token usage: {e}")
+            return None
+
     def track_embedding_usage(
         self,
         tokens: int,
