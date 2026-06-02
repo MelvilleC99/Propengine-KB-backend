@@ -226,9 +226,10 @@ async def get_system_health() -> Dict[str, Any]:
     # Handle any exceptions from checks
     def safe_result(check, name):
         if isinstance(check, Exception):
+            logger.warning(f"{name} health check raised: {check}")
             return {
                 "status": "down",
-                "message": f"Health check failed: {str(check)}",
+                "message": "Health check failed",
                 "response_time_ms": None
             }
         return check
@@ -256,10 +257,16 @@ async def get_system_health() -> Dict[str, Any]:
     degraded_count = sum(1 for s in service_statuses if s == "degraded")
     down_count = sum(1 for s in service_statuses if s == "down")
     
+    # Persistence-degradation signal: are sessions/messages currently running on
+    # in-memory fallback (i.e. Firebase/Redis failing)? Lost on restart if so.
+    from src.memory.session_manager import SessionManager
+    session_persistence = SessionManager.get_degradation_status()
+
     health = {
         "timestamp": int(time.time()),
         "overall_status": overall_status,
         "services": services,
+        "session_persistence": session_persistence,
         "summary": {
             "total": len(services),
             "healthy": healthy_count,
@@ -267,7 +274,7 @@ async def get_system_health() -> Dict[str, Any]:
             "down": down_count
         }
     }
-    
+
     logger.info(f"Health check complete: {overall_status} ({healthy_count}/{len(services)} healthy)")
     
     return health

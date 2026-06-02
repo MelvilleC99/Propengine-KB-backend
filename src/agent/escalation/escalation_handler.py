@@ -144,7 +144,7 @@ Return ONLY "YES" or "NO" (no other text).
             is_escalation_request = answer == "YES"
             
             if is_escalation_request:
-                logger.info(f"🎫 Escalation request detected: {query[:50]}...")
+                logger.info("🎫 Escalation request detected")
             
             return is_escalation_request
             

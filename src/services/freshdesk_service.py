@@ -204,7 +204,7 @@ class FreshdeskService:
         }
         
         logger.info(f"📋 Escalation ticket data:")
-        logger.info(f"   Query: {query[:50]}...")
+        logger.info(f"   Query length: {len(query)} chars")
         logger.info(f"   User Email: {_mask_email(user_email)}")
         logger.info(f"   User Name: {user_name}")
         logger.info(f"   Agency: {user_agency}")

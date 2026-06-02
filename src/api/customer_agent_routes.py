@@ -56,7 +56,7 @@ async def customer_agent(request: CustomerAgentRequest, http_request: Request):
         )
         # =======================================
         
-        logger.info(f"👤 Customer Agent - Processing query: {request.message[:50]}...")
+        logger.info("👤 Customer Agent - Processing query")
         
         # Get or create session
         if request.session_id:
@@ -78,7 +78,7 @@ async def customer_agent(request: CustomerAgentRequest, http_request: Request):
         
         # Log escalation (messages already stored by orchestrator)
         if result.get("requires_escalation", False):
-            logger.warning(f"⚠️ Customer Agent - Escalation needed for query: {request.message[:50]}")
+            logger.warning(f"⚠️ Customer Agent - Escalation needed (session={session_id})")
 
         logger.info(f"✅ Customer Agent - Response generated (external only)")
         

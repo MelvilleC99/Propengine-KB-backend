@@ -59,7 +59,7 @@ async def support_agent(request: SupportAgentRequest, http_request: Request):
         )
         # =======================================
         
-        logger.info(f"🎧 Support Agent - Processing query: {request.message[:50]}...")
+        logger.info("🎧 Support Agent - Processing query")
         
         # Get or create session
         if request.session_id:
@@ -97,9 +97,9 @@ async def support_agent(request: SupportAgentRequest, http_request: Request):
         
         # Log escalation/low confidence (messages already stored by orchestrator)
         if result.get("requires_escalation", False):
-            logger.warning(f"⚠️ Support Agent - Escalation needed for query: {request.message[:50]}")
+            logger.warning(f"⚠️ Support Agent - Escalation needed (session={session_id})")
         elif result.get("confidence", 1.0) < 0.7:
-            logger.warning(f"⚠️ Support Agent - Low confidence ({result.get('confidence', 0):.2f}) for: {request.message[:50]}")
+            logger.warning(f"⚠️ Support Agent - Low confidence ({result.get('confidence', 0):.2f}) (session={session_id})")
         
         logger.info(f"✅ Support Agent - Response generated with {len(clean_sources)} sources")
         

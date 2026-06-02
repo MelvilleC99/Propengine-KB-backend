@@ -74,7 +74,7 @@ async def test_agent(request: TestAgentRequest, http_request: Request):
         )
         # =======================================
         
-        logger.info(f"🧪 Test Agent - Processing query: {request.message[:50]}...")
+        logger.info("🧪 Test Agent - Processing query")
         
         # Get or create session
         if request.session_id:

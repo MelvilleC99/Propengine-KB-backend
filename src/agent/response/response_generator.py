@@ -133,7 +133,7 @@ class ResponseGenerator:
         Returns:
             Fallback response string
         """
-        logger.info(f"⚠️ No KB results for: {query[:50]} — returning fixed fallback (no LLM call)")
+        logger.info(f"⚠️ No KB results (session={session_id}) — returning fixed fallback (no LLM call)")
 
         return (
             "I couldn't find an exact match for that. Do you have a specific reason code or "

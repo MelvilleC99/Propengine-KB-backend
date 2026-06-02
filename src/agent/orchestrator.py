@@ -29,6 +29,21 @@ from src.utils.logging_helper import get_logger
 logger = get_logger(__name__)
 
 
+def _run_in_background(coro, description: str) -> None:
+    """Run a coroutine fire-and-forget, but log any error instead of letting it vanish.
+
+    Background tasks started with asyncio.create_task() have no one awaiting them,
+    so an exception inside them disappears silently. Wrapping them here ensures any
+    failure (e.g. a session write or analytics write) is logged loudly instead.
+    """
+    async def _wrapper():
+        try:
+            await coro
+        except Exception as e:
+            logger.error(f"Background task failed ({description}): {e}", exc_info=True)
+    asyncio.create_task(_wrapper())
+
+
 class Agent:
     """Main agent orchestrator - coordinates the query processing pipeline"""
     
@@ -207,7 +222,7 @@ class Agent:
                 }
 
                 # Fire-and-forget: don't make user wait for session write
-                asyncio.create_task(self.session_manager.add_message(session_id, "assistant", response, metadata))
+                _run_in_background(self.session_manager.add_message(session_id, "assistant", response, metadata), "session write (greeting/escalation)")
 
                 return {
                     "response": response,
@@ -328,7 +343,7 @@ class Agent:
 
             # === STEP 8: No results - generate fallback ===
             if not results:
-                logger.warning(f"❌ No results found for query: {query}")
+                logger.warning(f"❌ No results found (session={session_id})")
 
                 self.metrics_collector.record_results(
                     sources_found=0,
@@ -363,7 +378,7 @@ class Agent:
                 }
                 
                 # Fire-and-forget: don't make user wait for session write
-                asyncio.create_task(self.session_manager.add_message(session_id, "assistant", fallback_response, metadata))
+                _run_in_background(self.session_manager.add_message(session_id, "assistant", fallback_response, metadata), "session write (fallback)")
 
                 return {
                     "response": fallback_response,
@@ -484,8 +499,8 @@ class Agent:
             
             # === STEP 14: Store assistant message + track analytics (fire-and-forget) ===
             # Don't make user wait for these writes — they happen in the background
-            asyncio.create_task(self.session_manager.add_message(session_id, "assistant", response, metadata))
-            asyncio.create_task(asyncio.to_thread(self.kb_analytics.track_kb_usage, sources, query, best_confidence, session_id))
+            _run_in_background(self.session_manager.add_message(session_id, "assistant", response, metadata), "session write")
+            _run_in_background(asyncio.to_thread(self.kb_analytics.track_kb_usage, sources, query, best_confidence, session_id), "kb analytics")
 
             logger.info(f"✅ Response generated (confidence: {best_confidence:.2f}, escalation: {requires_escalation}, time: {elapsed_ms:.0f}ms)")
 
@@ -545,7 +560,7 @@ class Agent:
             }
             
             # Fire-and-forget: don't make user wait for error logging
-            asyncio.create_task(self.session_manager.add_message(session_id, "assistant", error_response, metadata))
+            _run_in_background(self.session_manager.add_message(session_id, "assistant", error_response, metadata), "session write (error)")
 
             return {
                 "response": error_response,

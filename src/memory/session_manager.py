@@ -32,7 +32,13 @@ class SessionManager:
     - Manage rolling summaries
     - Orchestrate batch analytics writing
     """
-    
+
+    # Degradation state is CLASS-level (shared across all instances) because
+    # SessionManager is instantiated in several modules rather than being a singleton.
+    # This gives one consistent view that a health check can read from any instance.
+    _fallback_count = 0
+    _last_fallback_at = None
+
     def __init__(self):
         """Initialize session orchestrator with all components"""
         # Core components
@@ -46,8 +52,39 @@ class SessionManager:
         # Rolling summary configuration
         self.summary_interval = 5  # Generate summary every 5 messages
         self.summary_counter = {}  # session_id -> messages since last summary
-        
+
         logger.info("SessionManager initialized (orchestrator mode)")
+
+    @classmethod
+    def _record_degradation(cls, operation: str, error) -> None:
+        """Record a persistence failure that forced a fallback to in-memory storage.
+
+        Each call bumps a shared counter and emits a distinct, greppable DEGRADED marker
+        so a sustained outage is visible to monitoring/alerting instead of hiding among
+        ordinary error lines. Exposed via get_degradation_status() for health checks.
+        """
+        cls._fallback_count += 1
+        cls._last_fallback_at = datetime.now()
+        logger.warning(
+            f"⚠️ DEGRADED [{operation}]: persistence unavailable, using in-memory fallback "
+            f"(event #{cls._fallback_count}) — {error}"
+        )
+
+    @classmethod
+    def get_degradation_status(cls) -> Dict:
+        """Report persistence-degradation status (for health checks).
+
+        'degraded' is recency-based (true only if a fallback happened in the last 5 min)
+        so a single transient blip doesn't flag the system as degraded forever.
+        """
+        recently_degraded = False
+        if cls._last_fallback_at:
+            recently_degraded = (datetime.now() - cls._last_fallback_at).total_seconds() < 300
+        return {
+            "degraded": recently_degraded,
+            "fallback_events": cls._fallback_count,
+            "last_fallback_at": cls._last_fallback_at.isoformat() if cls._last_fallback_at else None,
+        }
     
     @property
     def firebase_sessions(self):
@@ -85,7 +122,7 @@ class SessionManager:
             return session_id
             
         except Exception as e:
-            logger.error(f"❌ Firebase session creation failed: {e}")
+            self._record_degradation("create_session", e)
             # Fallback to in-memory
             session_id = self.fallback.create_session(user_info)
             if user_info:
@@ -108,8 +145,8 @@ class SessionManager:
             if session:
                 return session
         except Exception as e:
-            logger.error(f"❌ Firebase session lookup failed: {e}")
-        
+            self._record_degradation("get_session", e)
+
         # Fallback to in-memory
         return self.fallback.get_session(session_id)
     
@@ -161,7 +198,7 @@ class SessionManager:
             return cache_success
             
         except Exception as e:
-            logger.error(f"❌ Error adding message to session {session_id}: {e}")
+            self._record_degradation("add_message", e)
             # Fallback to in-memory
             return self.fallback.add_message(session_id, role, content)
     
@@ -182,7 +219,7 @@ class SessionManager:
             if messages:
                 return messages
         except Exception as e:
-            logger.error(f"❌ Redis history lookup failed: {e}")
+            self._record_degradation("get_history (redis)", e)
         
         try:
             # Try Firebase
@@ -190,7 +227,7 @@ class SessionManager:
             if messages:
                 return messages
         except Exception as e:
-            logger.error(f"❌ Firebase history lookup failed: {e}")
+            self._record_degradation("get_history (firebase)", e)
         
         # Final fallback to in-memory
         return self.fallback.get_history(session_id, limit)

@@ -68,7 +68,7 @@ async def create_failure(request: CreateFailureRequest, http_request: Request):
         )
         # =======================================
         
-        logger.info(f"📝 Recording failure: {request.query[:50]}...")
+        logger.info(f"📝 Recording failure (session={request.session_id})")
         
         service = get_failure_service()
         result = service.create_failure(
