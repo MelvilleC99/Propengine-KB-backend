@@ -73,10 +73,15 @@ class VectorSearch:
                 metadata_filter["entryType"] = normalized_type
                 logger.info(f"Filtering by entry_type: {normalized_type}")
             
-            # Add user type filter if specified
+            # Add user type filter if specified.
+            # Audience rule: customer (external) sees [external + both];
+            # support (internal) sees [internal + both]. Entries tagged "both" are
+            # visible to everyone, so the filter must match the requested type OR
+            # "both" — otherwise the ~90% of the KB tagged "both" is invisible to
+            # the customer/support agents.
             if user_type and user_type.lower() != "both":
-                metadata_filter["userType"] = user_type.lower()
-                logger.info(f"Filtering by user_type: {user_type}")
+                metadata_filter["userType"] = {"$in": [user_type.lower(), "both"]}
+                logger.info(f"Filtering by user_type: {user_type} (+ 'both')")
             
             # Add any additional filters
             if additional_metadata_filter:

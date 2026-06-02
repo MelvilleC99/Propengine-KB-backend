@@ -176,13 +176,16 @@ class Agent:
         
         try:
             # === STEP 1: Store user message ===
+            context_load_start = time.time()
             logger.log_query_start(session_id, query)
             await self.session_manager.add_message(session_id, "user", query)
             logger.log_message_stored(session_id, "user", query)
-            
+
             # === STEP 2: Get conversation context ===
             context_data = self.session_manager.get_context_for_llm(session_id)
             conversation_context = context_data.get("formatted_context", "")
+            # Capture the (previously un-timed) session-write + context-load cost.
+            self.metrics_collector.record_context_load((time.time() - context_load_start) * 1000)
             
             message_count = context_data.get("message_count", 0)
             has_summary = context_data.get("has_summary", False)

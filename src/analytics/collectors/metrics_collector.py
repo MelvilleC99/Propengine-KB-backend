@@ -45,6 +45,11 @@ class QueryMetricsCollector:
             self.current_metrics.classification_confidence = confidence
             self.current_metrics.classification_time_ms = self._stop_timer("classification")
 
+    def record_context_load(self, elapsed_ms: float) -> None:
+        """Record time spent storing the user message + loading conversation context."""
+        if self.current_metrics:
+            self.current_metrics.context_load_time_ms = elapsed_ms
+
     def record_query_intelligence(
         self,
         enhanced_query: str,
@@ -141,15 +146,28 @@ class QueryMetricsCollector:
             metrics_dict = self.current_metrics.model_dump()
 
             # ENHANCED: Log detailed breakdown
+            m = self.current_metrics
+            accounted = (
+                m.classification_time_ms
+                + m.context_load_time_ms
+                + m.query_intelligence_time_ms
+                + m.search_execution.embedding_time_ms
+                + m.search_execution.search_time_ms
+                + m.search_execution.rerank_time_ms
+                + m.response_generation_time_ms
+            )
             logger.info(
                 f"📊 TIMING BREAKDOWN:\n"
-                f"  Classification: {self.current_metrics.classification_time_ms:.0f}ms\n"
-                f"  Query Intelligence: {self.current_metrics.query_intelligence_time_ms:.0f}ms\n"
-                f"  Embedding: {self.current_metrics.search_execution.embedding_time_ms:.0f}ms\n"
-                f"  Search: {self.current_metrics.search_execution.search_time_ms:.0f}ms\n"
-                f"  Reranking: {self.current_metrics.search_execution.rerank_time_ms:.0f}ms\n"
-                f"  Response Generation: {self.current_metrics.response_generation_time_ms:.0f}ms\n"
-                f"  TOTAL: {self.current_metrics.total_time_ms:.0f}ms"
+                f"  Classification:      {m.classification_time_ms:.0f}ms\n"
+                f"  Context load:        {m.context_load_time_ms:.0f}ms\n"
+                f"  Query Intelligence:  {m.query_intelligence_time_ms:.0f}ms\n"
+                f"  Embedding:           {m.search_execution.embedding_time_ms:.0f}ms\n"
+                f"  Search:              {m.search_execution.search_time_ms:.0f}ms\n"
+                f"  Reranking:           {m.search_execution.rerank_time_ms:.0f}ms\n"
+                f"  Response Generation: {m.response_generation_time_ms:.0f}ms\n"
+                f"  ── accounted:        {accounted:.0f}ms\n"
+                f"  ── unaccounted:      {m.total_time_ms - accounted:.0f}ms (context-build, cost-agg, overhead)\n"
+                f"  TOTAL:               {m.total_time_ms:.0f}ms"
             )
 
             logger.info(

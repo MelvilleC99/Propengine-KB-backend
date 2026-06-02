@@ -5,16 +5,16 @@ Complete metrics for query execution including search, timing, and costs
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 from .cost_breakdown import CostBreakdown
 
 
 class SearchExecutionMetrics(BaseModel):
     """Vector search execution metrics with validation"""
     
-    filters_applied: Dict[str, str] = Field(
+    filters_applied: Dict[str, Any] = Field(
         default_factory=dict,
-        description="Metadata filters applied to search"
+        description="Metadata filters applied to search (values may be a string or an operator dict like {'$in': [...]})"
     )
     documents_scanned: int = Field(
         default=0,
@@ -141,6 +141,11 @@ class QueryExecutionMetrics(BaseModel):
         default=0.0,
         ge=0.0,
         description="Query classification time (ms)"
+    )
+    context_load_time_ms: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Time to store the user message + load conversation context (ms) — Redis/Firebase"
     )
     query_intelligence_time_ms: float = Field(
         default=0.0,

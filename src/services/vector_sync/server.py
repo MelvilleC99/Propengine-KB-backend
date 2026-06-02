@@ -19,7 +19,8 @@ class VectorSyncService:
     # Allowed values for the filterable metadata fields. The search side filters on
     # these exact values, so anything outside the set could never be retrieved —
     # they are validated/coerced on write in _prepare_chunk_metadata.
-    VALID_USER_TYPES = {"internal", "external"}
+    # "both" = visible to every audience (the search treats it as a wildcard).
+    VALID_USER_TYPES = {"internal", "external", "both"}
     VALID_ENTRY_TYPES = {"how_to", "workflow", "definition", "error"}
 
     def __init__(self):
