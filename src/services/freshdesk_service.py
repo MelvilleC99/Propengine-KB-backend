@@ -101,6 +101,8 @@ class FreshdeskService:
                 "priority": priority,
                 "status": 2,  # Open
                 "source": 2,  # Portal
+                "type": "Question",  # required by this Freshdesk account; must be one of
+                                     # Question / Problem / Feature Request / Book a demo
                 "tags": tags or ["propertyengine", "ai-escalation"],
             }
 
@@ -197,6 +199,8 @@ class FreshdeskService:
         # in this account, so they are intentionally omitted (their values still appear in
         # the ticket description). If you add them in Freshdesk admin, re-add them here.
         custom_fields = {
+            "cf_agency_group": "Internal",  # REQUIRED dropdown; must match a configured value
+            "cf_agency_office": "PropTech",  # REQUIRED dropdown; one of PropTech / BetterBond
             "cf_category": "Listing",  # Default
             "cf_sub_category": "Other",  # Default
             "cf_case_ownership": "Support",
