@@ -52,9 +52,18 @@ async def main():
         sid = agent.session_manager.create_session({})
         t0 = time.time()
         try:
-            result = await agent.process_query(
-                query=query, session_id=sid, user_info={}, user_type_filter=filt
-            )
+            # Collect the stream into a result dict (process_query was removed — stream-only)
+            sources, tokens, meta = [], [], {}
+            async for frame in agent.process_query_stream(
+                query=query, session_id=sid, user_info={}, user_type_filter=filt):
+                ft = frame.get("type")
+                if ft == "token": tokens.append(frame["text"])
+                elif ft == "sources": sources = frame["sources"]
+                elif ft == "metadata": meta = frame
+            result = {"response": "".join(tokens), "sources": sources,
+                      "confidence": meta.get("confidence"),
+                      "requires_escalation": meta.get("requires_escalation"),
+                      "debug_metrics": meta.get("debug_metrics", {})}
             wall = (time.time() - t0) * 1000
             dm = result.get("debug_metrics", {}) or {}
             show(f"{query}  [filter={filt}]", dm, wall, result)
