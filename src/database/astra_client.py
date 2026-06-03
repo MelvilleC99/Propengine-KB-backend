@@ -39,7 +39,9 @@ class AstraDBClient:
                 openai_api_key=settings.OPENAI_API_KEY,
                 base_url=settings.OPENAI_BASE_URL,
                 model=settings.EMBEDDING_MODEL,
-                dimensions=1536  # Match AstraDB collection
+                dimensions=1536,  # Match AstraDB collection
+                timeout=settings.LLM_TIMEOUT_SECONDS,
+                max_retries=settings.LLM_MAX_RETRIES,
             )
             logger.info(f"OpenAI embeddings instance created with model: {settings.EMBEDDING_MODEL}")
         return self._embeddings

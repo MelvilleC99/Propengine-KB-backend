@@ -15,7 +15,7 @@ RATE_LIMITS = {
     # === QUERY ENDPOINTS ===
     # Main agent query endpoints (support, customer, test agents)
     "query": {
-        "requests": 100,      # Number of queries allowed
+        "requests": 10,       # Number of queries allowed per user per window
         "window": 86400,      # Time window in seconds (86400 = 24 hours)
         "description": "Agent queries (support/customer/test)"
     },
@@ -32,7 +32,7 @@ RATE_LIMITS = {
     # === FEEDBACK ENDPOINTS ===
     # Thumbs up/down feedback submissions
     "feedback": {
-        "requests": 50,       # Number of feedback submissions allowed
+        "requests": 10,       # Number of feedback submissions allowed
         "window": 86400,      # 24 hours
         "description": "Response feedback (thumbs up/down)"
     },
@@ -40,7 +40,7 @@ RATE_LIMITS = {
     # === TICKET/ESCALATION ENDPOINTS ===
     # Agent failure reporting and ticket creation
     "ticket": {
-        "requests": 20,       # Number of tickets/failures allowed
+        "requests": 2,        # Number of tickets/failures allowed
         "window": 86400,      # 24 hours
         "description": "Agent failures and ticket creation"
     },

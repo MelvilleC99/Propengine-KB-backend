@@ -44,10 +44,15 @@ class StructureAnalyzer:
     
     def __init__(self):
         from langchain_openai import ChatOpenAI
-        
+        from src.config.settings import settings
+
         self.llm = ChatOpenAI(
-            model="gpt-4o-mini",  # Fast and cost-effective for analysis
-            temperature=0
+            api_key=settings.OPENAI_API_KEY,      # use the company proxy, not default OpenAI
+            base_url=settings.OPENAI_BASE_URL,
+            model=settings.OPENAI_MODEL,
+            temperature=0,
+            timeout=settings.LLM_TIMEOUT_SECONDS,
+            max_retries=settings.LLM_MAX_RETRIES,
         )
         logger.info("✅ Structure Analyzer initialized")
     

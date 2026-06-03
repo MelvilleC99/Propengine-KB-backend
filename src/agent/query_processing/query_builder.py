@@ -38,7 +38,9 @@ class QueryBuilder:
             api_key=settings.OPENAI_API_KEY,
             base_url=settings.OPENAI_BASE_URL,
             model=settings.OPENAI_MODEL,
-            temperature=0.3  # Lower temperature for consistent analysis
+            temperature=0.3,  # Lower temperature for consistent analysis
+            timeout=settings.LLM_TIMEOUT_SECONDS,
+            max_retries=settings.LLM_MAX_RETRIES,
         )
         
         # Load prompts from YAML

@@ -25,7 +25,9 @@ class ChatSummarizer:
             base_url=settings.OPENAI_BASE_URL,
             model=settings.OPENAI_MODEL,
             temperature=0.1,  # Low temperature for consistent summaries
-            max_tokens=300
+            max_tokens=300,
+            timeout=settings.LLM_TIMEOUT_SECONDS,
+            max_retries=settings.LLM_MAX_RETRIES,
         )
         
         # Load system prompt once

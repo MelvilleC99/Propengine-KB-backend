@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     OPENAI_BASE_URL: str = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
     OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+
+    # LLM request safety — a single call fails fast instead of hanging if the proxy stalls.
+    LLM_TIMEOUT_SECONDS: int = int(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
+    LLM_MAX_RETRIES: int = int(os.getenv("LLM_MAX_RETRIES", "2"))
     
     # Redis Configuration (optional - set REDIS_ENABLED=false to disable)
     REDIS_ENABLED: bool = os.getenv("REDIS_ENABLED", "true").lower() == "true"
