@@ -1,0 +1,31 @@
+# Keep the Docker build context small — these never belong in the image
+.git/
+.gitignore
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Local dev / diagnostics (gitignored, not part of the app)
+test_scripts/
+claude_code/
+tests/
+
+# Env & local config (secrets come from Secret Manager at deploy time)
+.env
+.env.*
+!.env.example
+app.yaml
+
+# Docs & meta (not needed at runtime)
+docs/
+*.md
+!README.md
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
+*.log

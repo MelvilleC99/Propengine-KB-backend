@@ -1,279 +1,127 @@
-# PropEngine Support Agent Backend
+# PropertyEngine Knowledge Base & Support Agent — Backend
 
-## 🏗️ Architecture Overview
+A FastAPI backend that powers **two products** from one knowledge base:
 
-Clean, modular AI-powered support agent backend with intelligent query routing and vector search.
+1. **KB Management** — create, chunk, embed, and sync knowledge-base articles to a vector store.
+2. **Support Agent** — a RAG agent that answers questions over that knowledge, served to three
+   audiences (customer / support staff / internal test) from a single pipeline.
 
-## 📁 Project Structure
+Built on FastAPI + LangChain, OpenAI embeddings & `gpt-4o-mini` (via a company proxy), AstraDB
+(vector store), Firebase/Firestore (durable data), and Redis (live session memory).
+
+---
+
+## Architecture at a glance
 
 ```
-Propengine-KB-backend/
-├── main.py                      # FastAPI application entry point
-├── requirements.txt             # Python dependencies
-├── .env                        # Environment configuration
-│
-├── src/                        # Source code directory
-│   ├── __init__.py
-│   │
-│   ├── config/                # Configuration management
-│   │   ├── __init__.py
-│   │   └── settings.py        # Environment settings
-│   │
-│   ├── agent/                 # Agent orchestration
-│   │   ├── __init__.py
-│   │   └── orchestrator.py    # Query routing and response generation
-│   │
-│   ├── query/                 # Query and search operations
-│   │   ├── __init__.py
-│   │   └── vector_search.py   # Vector search implementation
-│   │
-│   ├── prompts/               # System and user prompts
-│   │   ├── __init__.py
-│   │   └── system_prompts.py  # LLM prompt templates
-│   │
-│   ├── api/                   # API endpoints
-│   │   ├── __init__.py
-│   │   ├── chat_routes.py     # Chat endpoints
-│   │   └── admin_routes.py    # Admin endpoints
-│   │
-│   ├── database/              # Database connections
-│   │   ├── __init__.py
-│   │   └── connection.py      # AstraDB connection management
-│   │
-│   └── memory/                # Session management
-│       ├── __init__.py
-│       └── session_manager.py # Conversation history
-│
-└── tests/                     # Unit tests
-    ├── __init__.py
-    ├── test_database.py       # Database connection tests
-    ├── test_query.py          # Vector search tests
-    └── test_api.py            # API endpoint tests
+                 ┌───────────────────────── KB Management ─────────────────────────┐
+  Create entry → │  Firebase (kb_entries)  →  chunk  →  embed  →  AstraDB (vectors) │
+   / upload doc  └──────────────────────────────────────────────────────────────────┘
+                                                  │
+                 ┌───────────────────────── Support Agent ──────────────────────────┐
+  User query  →  │  classify → search (audience-filtered) → rerank → stream answer   │ → NDJSON
+                 │            ↑ Redis context        ↑ escalation decision            │   stream
+                 └──────────────────────────────────────────────────────────────────┘
 ```
 
-## 🔑 Key Components
+- **Audience isolation:** the same agent serves customers and staff; a `user_type_filter` decides
+  which KB entries the search can see, so a customer never sees an internal article. See
+  [docs/AGENT_PIPELINE.md](docs/AGENT_PIPELINE.md#audience-isolation).
 
-### 1. **Configuration (`src/config/`)**
-- Centralized environment variable management
-- Settings validation with Pydantic
+---
 
-### 2. **Agent (`src/agent/`)**
-- Query classification (greeting, definition, howto, error, workflow)
-- Intelligent routing to appropriate collections
-- Response generation with LLM
+## Directory structure
 
-### 3. **Query (`src/query/`)**
-- Vector search across AstraDB collections
-- **IMPORTANT**: Handles different field names:
-  - `definitions`, `errors`, `howto` collections use `page_content`
-  - `workflow` collection uses `content` field in metadata
-- Query cleaning and optimization
+```
+.
+├── main.py                  # FastAPI app entry point
+├── Dockerfile               # Cloud Run container (Python 3.11)
+├── deploy_with_secrets.sh   # Deploy to Cloud Run (pulls secrets from Secret Manager)
+├── requirements.txt
+├── docs/                    # ← see Documentation below
+├── tests/                   # pytest suite (escalation + audience isolation)
+└── src/
+    ├── api/                 # FastAPI routers
+    │   └── kb/              #   KB management endpoints (entries, documents, vectors, duplicates)
+    ├── agent/               # The support agent
+    │   ├── classification/  #   query type classifier
+    │   ├── query_processing/#   query intelligence + enhancement
+    │   ├── search/          #   search strategy + parent-document retrieval
+    │   ├── response/        #   answer generation (streaming + non-streaming)
+    │   ├── escalation/      #   escalation decision (pure rules)
+    │   ├── context/         #   context building + answer-from-history
+    │   └── orchestrator.py  #   coordinates the whole query pipeline
+    ├── query/               # vector_search + reranker (the read side)
+    ├── services/            # vector_sync (chunk/embed/sync), astradb, firebase
+    ├── document_processing/ # DOCX/PDF extraction → structure → KB entry
+    ├── database/            # Firestore + AstraDB clients and per-collection services
+    ├── memory/              # Redis session memory + rolling summaries + KB usage analytics
+    ├── analytics/           # query metrics + token/cost tracking
+    ├── config/              # settings, rate limits
+    └── prompts/             # YAML prompt templates
+```
 
-### 4. **Prompts (`src/prompts/`)**
-- System prompts for consistent agent behavior
-- Response generation templates
-- Fallback prompts for no-result scenarios
+---
 
-### 5. **Database (`src/database/`)**
-- AstraDB connection initialization
-- Health checks for all collections
-- Connection status monitoring
+## Quick start (local)
 
-### 6. **Memory (`src/memory/`)**
-- Session management with 2-hour expiration
-- Conversation history tracking
-- Metadata collection for analytics
-
-### 7. **API (`src/api/`)**
-- RESTful endpoints for chat and admin functions
-- Health checks with detailed status
-- Session management endpoints
-
-## ⚡ Performance Optimizations
-
-### Connection Pooling (Singleton Pattern)
-- **AstraDB connections** are created once at startup and reused across all queries
-- **OpenAI embeddings** instance is shared to avoid recreation overhead
-- **Firebase connections** use singleton pattern for efficient session management
-
-### Embedding Caching
-- **Single embedding per query** - embeddings are generated once and reused for all fallback searches
-- **Cached embeddings** are passed between search attempts instead of recalculating
-- **Performance gain**: ~800ms saved per eliminated embedding call
-
-### Non-blocking Firebase Logging
-- **Immediate response delivery** - responses are sent to frontend without waiting for Firebase writes
-- **Session logging disabled** - individual messages are not logged to Firebase for performance
-- **Chat summaries** (planned) - will replace individual message logging for better efficiency
-- **Performance gain**: ~1.5 seconds saved per query
-
-### Total Performance Improvements
-- **Before optimizations**: ~8+ seconds per query
-- **After optimizations**: ~5.3 seconds per query  
-- **Performance improvement**: 35% faster responses
-- **Key bottlenecks eliminated**:
-  - Duplicate database connections
-  - Multiple embedding API calls
-  - Blocking Firebase writes
-
-## 🚀 Quick Start
-
-### 1. Install Dependencies
 ```bash
-cd /Users/melville/Documents/Propengine-KB-backend
-python3 -m venv venv
-source venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+
+cp .env.example .env        # then fill in the values (see .env.example)
+                            # tip: set REQUIRE_AUTH=false for local testing without a frontend token
+python main.py              # serves on http://127.0.0.1:8000
+
+# health check
+curl http://127.0.0.1:8000/api/health/
+# interactive API docs
+open http://127.0.0.1:8000/docs
 ```
 
-### 2. Configure Environment
-Ensure `.env` file contains:
-```env
-# AstraDB
-ASTRADB_APPLICATION_TOKEN=your_token
-ASTRADB_API_ENDPOINT=your_endpoint
-ASTRADB_KEYSPACE=default_keyspace
+Required env (see [.env.example](.env.example)): OpenAI proxy key + base URL, AstraDB token +
+endpoint, Firebase credentials. Redis and Freshdesk are optional (graceful fallback).
 
-# Collections
-ASTRADB_DEFINITIONS_COLLECTION=definitions_collection
-ASTRADB_ERRORS_COLLECTION=errors_collection
-ASTRADB_HOWTO_COLLECTION=howto_collection
-ASTRADB_WORKFLOWS_COLLECTION=workflow
+---
 
-# OpenAI
-OPENAI_API_KEY=your_key
-OPENAI_MODEL=gpt-4o-mini
-```
+## Deployment
 
-### 3. Run the Backend
+Deploys to **Google Cloud Run**; secrets come from **Secret Manager** (never committed):
+
 ```bash
-python main.py
+./deploy_with_secrets.sh
 ```
 
-The server will start on `http://localhost:8000`
+This builds the Dockerfile, deploys the container, and wires secrets via `--set-secrets`.
+> **Auth:** the Cloud Run service stays `--allow-unauthenticated` by design (a browser can't present
+> a Google IAM token); auth is enforced **in-app** via Firebase ID tokens, controlled by
+> `REQUIRE_AUTH` (default **on**). The frontend must send the token before deploying with it on —
+> see [docs/FRONTEND_AUTH.md](docs/FRONTEND_AUTH.md) and [docs/LIMITATIONS.md](docs/LIMITATIONS.md).
 
-## 🧪 Testing
+---
 
-### Run All Tests
+## Testing
+
 ```bash
-pytest tests/
+pytest tests/ -v
 ```
 
-### Run Specific Test Categories
-```bash
-# Database connection tests
-pytest tests/test_database.py
+- `tests/test_isolation.py` — proves a customer (`external`) search never returns an `internal`
+  chunk (runs against live AstraDB).
+- `tests/test_escalation.py` — escalation decision logic.
 
-# Query/search tests
-pytest tests/test_query.py
+(One-off diagnostic/latency scripts live in `test_scripts/`, which is **not** committed.)
 
-# API endpoint tests
-pytest tests/test_api.py
-```
+---
 
-### Test Coverage
-```bash
-pytest --cov=src tests/
-```
+## Documentation
 
-## 📊 API Endpoints
-
-### Chat Endpoints
-- `POST /api/chat/` - Main chat interface
-- `GET /api/chat/health` - Health check with collection status
-- `GET /api/chat/session/{id}` - Session information
-- `GET /api/chat/history/{id}` - Chat history
-
-### Admin Endpoints
-- `GET /api/admin/stats` - Overall statistics
-- `GET /api/admin/sessions` - Active sessions
-- `GET /api/admin/messages` - Recent messages
-- `POST /api/admin/escalate/{id}` - Escalate to human
-- `DELETE /api/admin/sessions/{id}` - Delete session
-
-## 🔍 Collection Field Mapping
-
-**CRITICAL**: Different collections use different field structures:
-
-| Collection | Field Name | Location |
-|------------|------------|----------|
-| definitions_collection | `page_content` | Document root |
-| errors_collection | `page_content` | Document root |
-| howto_collection | `page_content` | Document root |
-| workflow | `content` | In metadata |
-
-## 📝 Logging
-
-The backend uses structured logging with detailed information:
-- File location and line numbers
-- Timestamp and log levels
-- Collection-specific search results
-- Error tracking with stack traces
-
-Check logs in console output for:
-- Connection status for each collection
-- Query classification results
-- Search operations and results
-- Error details with context
-
-## 🎯 Query Flow
-
-1. **User Query** → Chat endpoint receives message
-2. **Classification** → Query type determined (definition, error, etc.)
-3. **Collection Selection** → Route to appropriate collection
-4. **Query Cleaning** → Remove stop words, optimize for search
-5. **Vector Search** → Search selected collection
-6. **Content Extraction** → Handle different field formats
-7. **Response Generation** → LLM generates response with context
-8. **Session Update** → Store in conversation history
-
-## ⚠️ Important Notes
-
-1. **Field Name Handling**: The system automatically handles the difference between `page_content` and `content` fields
-2. **Collection Indexing**: Current collections have indexing warnings but work correctly
-3. **Session Expiration**: Sessions expire after 2 hours of inactivity
-4. **Error Logging**: All errors are logged with full context for debugging
-
-## 🔧 Troubleshooting
-
-### Collection Connection Issues
-- Check AstraDB credentials in `.env`
-- Verify collection names match exactly
-- Review health check endpoint for specific collection status
-
-### Search Not Finding Results
-- Verify data exists in collection (check AstraDB console)
-- Check field mapping (page_content vs content)
-- Review query classification in logs
-
-### Session Issues
-- Sessions expire after 2 hours
-- Check session ID is being passed correctly
-- Use admin endpoints to view active sessions
-
-## 📈 Monitoring
-
-Access the health endpoint for real-time status:
-```bash
-curl http://localhost:8000/api/chat/health
-```
-
-This returns:
-- Overall system status
-- Individual collection connection status
-- Active session count
-- Service availability
-
-## 🚦 Status Indicators
-
-- ✅ **Healthy**: All services connected
-- ⚠️ **Degraded**: Some services unavailable
-- ❌ **Unhealthy**: Critical services offline
-
-## 📞 Support
-
-For issues or questions:
-1. Check logs for detailed error messages
-2. Verify environment configuration
-3. Run test suite to identify specific failures
-4. Review collection field mappings
+| Doc | What it covers |
+|---|---|
+| [docs/KB_INGESTION.md](docs/KB_INGESTION.md) | **Part 1** — creating, chunking, embedding & syncing KB entries |
+| [docs/AGENT_PIPELINE.md](docs/AGENT_PIPELINE.md) | **Part 2** — how a query is classified, searched, isolated & answered |
+| [docs/CUSTOMER_AGENT_API.md](docs/CUSTOMER_AGENT_API.md) | Frontend API reference for the customer chat (streaming) |
+| [docs/FRONTEND_AUTH.md](docs/FRONTEND_AUTH.md) | How the frontend attaches the Firebase token to backend calls |
+| [docs/FIREBASE_COLLECTIONS.md](docs/FIREBASE_COLLECTIONS.md) | Which Firestore collections we write, and what triggers each |
+| [docs/PRODUCT_SPEC.md](docs/PRODUCT_SPEC.md) | Product spec / intent |
+| [docs/LIMITATIONS.md](docs/LIMITATIONS.md) | Known gaps & roadmap (read me before judging 🙂) |

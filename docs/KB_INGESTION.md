@@ -1,8 +1,9 @@
-# KB Creation & Embedding — File Map
+# KB Ingestion — Creating & Embedding Knowledge
 
-> **Last updated:** 2026-06-02
-> **Scope:** Only the files that handle **creating a KB entry, processing it, chunking,
-> embedding, and writing it to the vector DB.** (For the query/agent side, see ARCHITECTURE.md.)
+> **Part 1 of 2.** This covers the **KB management product**: how a knowledge-base entry is
+> created, processed, chunked, embedded, and written to the vector DB.
+> For the **agent product** (how those entries get searched and answered), see
+> [AGENT_PIPELINE.md](AGENT_PIPELINE.md).
 
 ---
 
@@ -36,6 +37,10 @@ Frontend POST /api/kb/documents/upload
 Frontend POST /api/kb/check-duplicates → api/kb/duplicates.py → vector similarity search
 ```
 
+> **Why create and sync are two steps:** creating an entry writes it to Firebase immediately
+> (`vectorStatus="pending"`) so it's editable. Embedding only happens on **sync**. This means
+> an edited entry is **stale in search until re-synced** — see [Vector drift](LIMITATIONS.md#vector-drift).
+
 ---
 
 ## Files — by stage
@@ -44,7 +49,7 @@ Frontend POST /api/kb/check-duplicates → api/kb/duplicates.py → vector simil
 | File | Role |
 |---|---|
 | `src/api/kb_routes.py` | Aggregates the KB sub-routers |
-| `src/api/kb/entries.py` | Create / update / get / list / delete / archive KB entries (Firebase CRUD). *No `/restore` route exists.* |
+| `src/api/kb/entries.py` | Create / update / get / list / delete / archive KB entries (Firebase CRUD) |
 | `src/api/kb/documents.py` | Upload DOCX/PDF → extract → build entry → sync |
 | `src/api/kb/vectors.py` | **Sync** entry to vector DB (`/sync`), list vectors, delete vectors |
 | `src/api/kb/duplicates.py` | Semantic duplicate check (threshold 0.70, dedup by parent) |
@@ -60,9 +65,9 @@ Frontend POST /api/kb/check-duplicates → api/kb/duplicates.py → vector simil
 ### 3. Chunking, embedding & sync (the core)
 | File | Role |
 |---|---|
-| `src/services/vector_sync/server.py` | **Orchestrates sync.** Fetches entry → chunks → embeds → writes to AstraDB → updates Firebase status. Contains `_prepare_chunk_metadata` — the single choke-point where metadata is **validated & normalized** (lowercase userType/entryType, category fallback, allowed-value checks). |
-| `src/services/vector_sync/chunking.py` | Chunking strategies for **template** entries (definition/error/how_to/workflow), size-based splitting, and the `_tail_overlap` helper (chunk overlap). |
-| `src/services/vector_sync/document_chunking.py` | Chunking strategies for **uploaded documents** (section-based + large-section splitting with overlap). |
+| `src/services/vector_sync/server.py` | **Orchestrates sync.** Fetch entry → chunk → embed → write to AstraDB → update Firebase status. Contains `_prepare_chunk_metadata` — the single choke-point where metadata is **validated & normalized** (lowercase userType/entryType, category fallback, allowed-value checks). |
+| `src/services/vector_sync/chunking.py` | Chunking for **template** entries (definition/error/how_to/workflow) + size-based splitting + `_tail_overlap` (chunk overlap). |
+| `src/services/vector_sync/document_chunking.py` | Chunking for **uploaded documents** (section-based + large-section splitting with overlap). |
 
 ### 4. Storage clients (shared with the read side)
 | File | Role |
@@ -72,35 +77,42 @@ Frontend POST /api/kb/check-duplicates → api/kb/duplicates.py → vector simil
 | `src/services/firebase/server.py` | Firebase KB entry CRUD (the `kb_entries` collection) |
 | `src/database/firebase_client.py` | Firestore client init |
 
-### 5. Config (shared)
-| File | Role |
-|---|---|
-| `src/config/settings.py` | `EMBEDDING_MODEL`, `PROPERTY_ENGINE_COLLECTION`, thresholds, service creds |
-
 ---
 
 ## What gets written per chunk (the metadata contract)
 
-Every chunk stored in AstraDB carries its **own embedding vector** plus a copy of the parent's metadata, so each chunk is independently filterable:
+Every chunk stored in AstraDB carries its **own embedding vector** plus a copy of the parent's
+metadata, so each chunk is independently filterable:
 
 ```
 _id:        "{entry_id}_chunk_{N}"
 vector:     [1536-dim embedding of THIS chunk's text]
 metadata:
-  entryType, userType, category, product, tags, title, related_documents   # from parent (normalized lowercase)
+  entryType, userType, category, product, tags, title, related_documents   # from parent (lowercased)
   parent_entry_id, parent_title, chunk_index, total_chunks, section_type    # chunk identity
   context_position ("1 of 4"), context_section_name, prev/next summaries    # context
 ```
 
-**Filtering contract:** the search side filters on `entryType` (e.g. `how_to`) and `userType` (`internal`/`external`). These are normalized to lowercase on write, so filtering can't silently break on casing.
+**Filtering contract:** the search side filters on `entryType` (e.g. `how_to`) and `userType`.
+These are normalized to **lowercase on write**, so filtering can't silently break on casing.
+
+### Audience tagging (`userType`) — drives the whole isolation model
+| `userType` | Visible to |
+|---|---|
+| `external` | customers only |
+| `internal` | support staff only |
+| `both` | everyone (customers **and** staff) |
+
+The search side enforces this with a `$in` filter (e.g. a customer query matches
+`userType ∈ {external, both}`). See [AGENT_PIPELINE.md → Audience isolation](AGENT_PIPELINE.md#audience-isolation).
 
 ---
 
-## Current state (as of last updated)
+## Current state
 - ✅ Embedding consistency (same model for query + docs) — verified correct
 - ✅ Metadata keys match search filters — verified
-- ✅ Schema validation + normalization (userType/entryType/category) — added
-- ✅ Chunk overlap on size-based splits — added
-- ✅ Partial sync marked `"partial"` (not silently `"synced"`) — added
-- ⬜ Update doesn't auto-reset `vectorStatus` (by design: update Firebase, then manually re-sync)
-- ⬜ `/restore` endpoint not implemented (frontend stub calls it)
+- ✅ Schema validation + normalization (userType/entryType/category) — in `_prepare_chunk_metadata`
+- ✅ Chunk overlap on size-based splits
+- ✅ Partial sync marked `"partial"` (not silently `"synced"`)
+- ⬜ Update does **not** auto-reset `vectorStatus` (by design: edit in Firebase, then manually re-sync)
+- ⬜ `/restore` endpoint not implemented (frontend stub calls it) — see [LIMITATIONS.md](LIMITATIONS.md)

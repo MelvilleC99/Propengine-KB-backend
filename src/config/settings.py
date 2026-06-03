@@ -16,7 +16,12 @@ class Settings(BaseSettings):
     API_PORT: int = int(os.getenv("API_PORT", "8000"))
     DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
-    
+
+    # Authentication — require a valid Firebase ID token on protected routes.
+    # Secure by default (ON). Set REQUIRE_AUTH=false ONLY for local dev or a brief
+    # migration window (e.g. before the frontend has started sending the token).
+    REQUIRE_AUTH: bool = os.getenv("REQUIRE_AUTH", "true").lower() == "true"
+
     # AstraDB Configuration
     ASTRADB_TOKEN: str = os.getenv("ASTRADB_APPLICATION_TOKEN", "")
     ASTRADB_ENDPOINT: str = os.getenv("ASTRADB_API_ENDPOINT", "")

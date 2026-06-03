@@ -63,3 +63,7 @@ logs/
 *.tmp
 *.temp
 app.yaml
+
+# Local dev/diagnostic scripts (kept locally, not deployed or pushed)
+test_scripts/
+claude_code/

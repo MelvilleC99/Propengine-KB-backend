@@ -3,7 +3,7 @@ PropEngine Support Agent - Main Application Entry Point
 Clean, modular FastAPI backend with intelligent query routing
 """
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exception_handlers import http_exception_handler
@@ -14,6 +14,7 @@ from src.config.settings import settings
 from src.api import admin_routes, kb_routes, session_endpoints, user_routes
 from src.api import test_agent_routes, support_agent_routes, customer_agent_routes
 from src.api import feedback_routes, agent_failure_routes, health_routes
+from src.api.auth import verify_user
 from src.database.astra_client import AstraDBConnection
 from src.database.firebase_client import initialize_firebase, test_firebase_connection
 
@@ -133,16 +134,20 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 # Include routers
-app.include_router(health_routes.router, tags=["health"])  # Health check endpoints
-app.include_router(test_agent_routes.router, tags=["test-agent"])
-app.include_router(support_agent_routes.router, tags=["support-agent"])
-app.include_router(customer_agent_routes.router, tags=["customer-agent"])
-app.include_router(admin_routes.router, prefix="/api/admin", tags=["admin"])
-app.include_router(kb_routes.router, tags=["kb"])
-app.include_router(feedback_routes.router, tags=["feedback"])
-app.include_router(agent_failure_routes.router, tags=["agent-failure"])
-app.include_router(session_endpoints.router, prefix="/api", tags=["sessions"])
-app.include_router(user_routes.router, tags=["users"])  # User management endpoints
+# Auth gate: every protected router gets `_auth`; PUBLIC ones (health, root) do not.
+# Enforcement is controlled by settings.REQUIRE_AUTH (see src/api/auth.py).
+_auth = [Depends(verify_user)]
+
+app.include_router(health_routes.router, tags=["health"])  # PUBLIC — monitoring
+app.include_router(test_agent_routes.router, tags=["test-agent"], dependencies=_auth)
+app.include_router(support_agent_routes.router, tags=["support-agent"], dependencies=_auth)
+app.include_router(customer_agent_routes.router, tags=["customer-agent"], dependencies=_auth)
+app.include_router(admin_routes.router, prefix="/api/admin", tags=["admin"], dependencies=_auth)
+app.include_router(kb_routes.router, tags=["kb"], dependencies=_auth)
+app.include_router(feedback_routes.router, tags=["feedback"], dependencies=_auth)
+app.include_router(agent_failure_routes.router, tags=["agent-failure"], dependencies=_auth)
+app.include_router(session_endpoints.router, prefix="/api", tags=["sessions"], dependencies=_auth)
+app.include_router(user_routes.router, tags=["users"], dependencies=_auth)  # User management
 
 @app.get("/")
 async def root():
