@@ -4,6 +4,8 @@
 All limits are per user (agent_id), tracked in Redis with automatic TTL cleanup.
 """
 
+import os
+
 # ============================================
 # RATE LIMIT CONFIGURATION
 # ============================================
@@ -95,12 +97,21 @@ DEV_LIMITS = {
 # ============================================
 # ACTIVE CONFIGURATION
 # ============================================
-# To switch configurations, change this assignment:
-# ACTIVE_LIMITS = HIGH_VOLUME_LIMITS
-# ACTIVE_LIMITS = STRICT_LIMITS
-# ACTIVE_LIMITS = DEV_LIMITS
+# The active tier is chosen by the RATE_LIMIT_TIER env var and DEFAULTS TO
+# "production" — so production is safe even if the env var is never set. Set
+# RATE_LIMIT_TIER=dev in your local .env to lift limits while developing.
+# Each tier inherits the full RATE_LIMITS set (incl. the "default" fallback) and
+# overrides the per-endpoint numbers.
 
-ACTIVE_LIMITS = DEV_LIMITS  # Using dev limits during development/testing
+_TIERS = {
+    "production": RATE_LIMITS,
+    "high_volume": {**RATE_LIMITS, **HIGH_VOLUME_LIMITS},
+    "strict": {**RATE_LIMITS, **STRICT_LIMITS},
+    "dev": {**RATE_LIMITS, **DEV_LIMITS},
+}
+
+RATE_LIMIT_TIER = os.getenv("RATE_LIMIT_TIER", "production").lower()
+ACTIVE_LIMITS = _TIERS.get(RATE_LIMIT_TIER, RATE_LIMITS)
 
 
 def get_rate_limits():
@@ -131,13 +142,11 @@ def get_limit_for_endpoint(endpoint_type: str):
 # USAGE EXAMPLES
 # ============================================
 """
-# To change limits system-wide:
-ACTIVE_LIMITS = HIGH_VOLUME_LIMITS
+# To switch tier system-wide, set the env var (NOT a code edit):
+#   RATE_LIMIT_TIER=production   (default — the real limits)
+#   RATE_LIMIT_TIER=dev          (10k/day — local development only)
+#   RATE_LIMIT_TIER=strict       (tighter, for external users)
 
-# To change a specific endpoint:
-RATE_LIMITS["query"]["requests"] = 200
-RATE_LIMITS["query"]["window"] = ONE_DAY
-
-# To temporarily disable rate limiting (for testing):
-ACTIVE_LIMITS = DEV_LIMITS
+# To change a specific production number, edit RATE_LIMITS above:
+#   RATE_LIMITS["query"]["requests"] = 200
 """

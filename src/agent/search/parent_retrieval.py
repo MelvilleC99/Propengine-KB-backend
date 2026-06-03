@@ -26,10 +26,11 @@ class ParentDocumentRetrieval:
         logger.info("✅ Parent document retrieval handler initialized")
     
     async def expand_parent_documents(
-        self, 
-        results: List[Dict], 
-        query: str, 
-        cached_embeddings: Optional[List[float]]
+        self,
+        results: List[Dict],
+        query: str,
+        cached_embeddings: Optional[List[float]],
+        user_type: Optional[str] = None,
     ) -> List[Dict]:
         """
         Intelligently expand results to include parent document chunks.
@@ -100,6 +101,7 @@ class ParentDocumentRetrieval:
             try:
                 parent_results, _, _ = await self.vector_search.search(
                     query=query,
+                    user_type=user_type,  # keep audience isolation even when expanding the parent doc
                     additional_metadata_filter={"parent_entry_id": parent_id},
                     k=total_chunks + 5,  # Add buffer in case total_chunks is inaccurate
                     similarity_threshold=0.0,  # Get all chunks regardless of similarity

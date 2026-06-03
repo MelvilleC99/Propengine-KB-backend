@@ -97,7 +97,7 @@ class SearchStrategy:
         # === PARENT DOCUMENT RETRIEVAL ===
         if results:
             results = await parent_retrieval_handler.expand_parent_documents(
-                results, query, cached_embeddings
+                results, query, cached_embeddings, user_type=user_type_filter
             )
             search_attempts.append(f"parent_retrieval:expanded_to_{len(results)}")
 
@@ -118,7 +118,7 @@ class SearchStrategy:
 
             if results:
                 results = await parent_retrieval_handler.expand_parent_documents(
-                    results, query, cached_embeddings
+                    results, query, cached_embeddings, user_type=user_type_filter
                 )
                 search_attempts.append(f"parent_retrieval_fallback:expanded_to_{len(results)}")
                 return results, search_attempts
