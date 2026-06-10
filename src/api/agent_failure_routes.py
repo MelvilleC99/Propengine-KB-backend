@@ -1,10 +1,11 @@
 """Agent Failure Routes - Track failures and create tickets"""
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Header, Depends
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict
 import logging
 from datetime import datetime
+from src.config.settings import settings
 from src.database.firebase_agent_failure_service import FirebaseAgentFailureService
 from src.services.freshdesk_service import get_freshdesk_service
 from src.utils.rate_limiter import check_rate_limit
@@ -12,6 +13,26 @@ from src.utils.rate_limiter import check_rate_limit
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/agent-failure", tags=["agent-failure"])
+
+# Public router for machine-to-machine webhooks (Freshdesk). NOT behind the Firebase
+# user-auth gate — a webhook caller has no user token. Secured instead by a shared secret
+# in the X-Webhook-Secret header (verify_webhook_secret). Included WITHOUT auth in main.py.
+webhook_router = APIRouter(prefix="/api/agent-failure", tags=["agent-failure-webhook"])
+
+
+def verify_webhook_secret(x_webhook_secret: str = Header(None)):
+    """Authenticate a webhook caller via a shared secret header.
+
+    Rejects with 403 unless X-Webhook-Secret matches settings.FRESHDESK_WEBHOOK_SECRET.
+    If no secret is configured the endpoint is left open (with a loud warning) so the
+    webhook keeps working — set FRESHDESK_WEBHOOK_SECRET to lock it down.
+    """
+    expected = settings.FRESHDESK_WEBHOOK_SECRET
+    if not expected:
+        logger.warning("⚠️ FRESHDESK_WEBHOOK_SECRET not set — webhook is currently unauthenticated")
+        return
+    if x_webhook_secret != expected:
+        raise HTTPException(status_code=403, detail="Invalid webhook secret")
 
 # Lazy load services
 _failure_service = None
@@ -228,7 +249,7 @@ async def get_needs_kb(limit: int = 20):
 
 # === Freshdesk Webhook ===
 
-@router.post("/webhook/fd-ticket-closed")
+@webhook_router.post("/webhook/fd-ticket-closed", dependencies=[Depends(verify_webhook_secret)])
 async def fd_ticket_closed(request: Request):
     """
     Freshdesk Webhook - Ticket Closed

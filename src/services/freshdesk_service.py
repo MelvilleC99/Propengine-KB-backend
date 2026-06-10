@@ -31,6 +31,7 @@ class FreshdeskService:
         self.domain = getattr(settings, 'FRESHDESK_DOMAIN', None)
         self.api_key = getattr(settings, 'FRESHDESK_API_KEY', None)
         self.responder_id = getattr(settings, 'FRESHDESK_RESPONDER_ID', None)
+        self.group_id = getattr(settings, 'FRESHDESK_GROUP_ID', None)
 
         if self.domain and self.api_key:
             self.base_url = f"https://{self.domain}/api/v2"
@@ -106,7 +107,13 @@ class FreshdeskService:
                 "tags": tags or ["propertyengine", "ai-escalation"],
             }
 
-            # Add responder_id if configured (required by some Freshdesk accounts)
+            # Assignment. NOTE: this Freshdesk account makes the Agent field REQUIRED, so every
+            # ticket must have a responder — we can't create an unassigned/group-only ticket via
+            # the API. So we set the group (e.g. Customer Support) AND a default responder.
+            # (To use a true unassigned group queue: in Freshdesk admin make the Agent field
+            #  optional, then unset FRESHDESK_RESPONDER_ID and only the group will be set.)
+            if self.group_id:
+                ticket_data["group_id"] = self.group_id
             if self.responder_id:
                 ticket_data["responder_id"] = self.responder_id
 

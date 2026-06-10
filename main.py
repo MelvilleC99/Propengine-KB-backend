@@ -101,10 +101,20 @@ ALLOWED_ORIGINS = [
     "https://knowledge-base-agent-55afc.web.app",  # Firebase Hosting
     "https://knowledge-base-agent-55afc.firebaseapp.com",  # Firebase alternative domain
 ]
+# Extra origins (e.g. the demo/DEV UI on another domain) added via env, comma-separated.
+ALLOWED_ORIGINS += [o.strip() for o in settings.CORS_ALLOWED_ORIGINS.split(",") if o.strip()]
+
+# CORS_ALLOWED_ORIGINS="*" → allow ALL origins (DEV/demo). Browsers forbid literal "*" together
+# with credentials, so we reflect any origin via a match-all regex — functionally "allow all"
+# while keeping the Authorization header working. Otherwise, use the explicit allow-list.
+if "*" in ALLOWED_ORIGINS:
+    _cors_origin_kwargs = {"allow_origin_regex": ".*"}
+else:
+    _cors_origin_kwargs = {"allow_origins": ALLOWED_ORIGINS}
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    **_cors_origin_kwargs,
     allow_credentials=True,
     # Least privilege: only the methods/headers the app actually uses.
     # If the frontend sends another custom header, add it here (symptom: a
@@ -137,15 +147,21 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 # Auth gate: every protected router gets `_auth`; PUBLIC ones (health, root) do not.
 # Enforcement is controlled by settings.REQUIRE_AUTH (see src/api/auth.py).
 _auth = [Depends(verify_user)]
+# Customer-facing flow (chat + feedback + escalation — all NON-destructive). Opened without auth
+# for the DEV/demo when CUSTOMER_AGENT_PUBLIC=true; otherwise gated like everything else.
+# KB management + admin are NEVER opened by this flag.
+_customer_auth = [] if settings.CUSTOMER_AGENT_PUBLIC else _auth
 
 app.include_router(health_routes.router, tags=["health"])  # PUBLIC — monitoring
-app.include_router(test_agent_routes.router, tags=["test-agent"], dependencies=_auth)
-app.include_router(support_agent_routes.router, tags=["support-agent"], dependencies=_auth)
-app.include_router(customer_agent_routes.router, tags=["customer-agent"], dependencies=_auth)
-app.include_router(admin_routes.router, prefix="/api/admin", tags=["admin"], dependencies=_auth)
-app.include_router(kb_routes.router, tags=["kb"], dependencies=_auth)
-app.include_router(feedback_routes.router, tags=["feedback"], dependencies=_auth)
-app.include_router(agent_failure_routes.router, tags=["agent-failure"], dependencies=_auth)
+app.include_router(test_agent_routes.router, tags=["test-agent"], dependencies=_auth)        # internal KB
+app.include_router(support_agent_routes.router, tags=["support-agent"], dependencies=_auth)  # internal KB
+app.include_router(customer_agent_routes.router, tags=["customer-agent"], dependencies=_customer_auth)
+app.include_router(admin_routes.router, prefix="/api/admin", tags=["admin"], dependencies=_auth)   # LOCKED
+app.include_router(kb_routes.router, tags=["kb"], dependencies=_auth)                              # LOCKED (destructive)
+app.include_router(feedback_routes.router, tags=["feedback"], dependencies=_customer_auth)
+app.include_router(agent_failure_routes.router, tags=["agent-failure"], dependencies=_customer_auth)
+# PUBLIC (machine-to-machine): Freshdesk webhook — secured by X-Webhook-Secret, NOT the user gate
+app.include_router(agent_failure_routes.webhook_router, tags=["agent-failure-webhook"])
 app.include_router(session_endpoints.router, prefix="/api", tags=["sessions"], dependencies=_auth)
 app.include_router(user_routes.router, tags=["users"], dependencies=_auth)  # User management
 

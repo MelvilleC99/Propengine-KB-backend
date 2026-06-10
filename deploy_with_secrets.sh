@@ -33,7 +33,13 @@ gcloud run deploy $SERVICE_NAME \
   --timeout 300 \
   --min-instances 0 \
   --max-instances 10 \
-  --set-env-vars="DEBUG=false,LOG_LEVEL=INFO,API_HOST=0.0.0.0,API_PORT=8080,REQUIRE_AUTH=true" \
+  # ⚠️ TEMPORARY — TESTING/DEMO ONLY. Revert these THREE before production:
+  #   CUSTOMER_AGENT_PUBLIC=true → customer chat (chat/feedback/escalation) is OPEN, NO auth.
+  #                                Set false once the frontend sends Firebase tokens.
+  #   RATE_LIMIT_TIER=dev        → 10k/day = effectively no rate limit. Use 'production' for real limits.
+  #   CORS_ALLOWED_ORIGINS=*     → any origin allowed. Narrow to real domains for production.
+  #   (REQUIRE_AUTH=true stays — support/test/KB/admin remain locked; only the customer flow is opened.)
+  --set-env-vars="DEBUG=false,LOG_LEVEL=INFO,API_HOST=0.0.0.0,API_PORT=8080,REQUIRE_AUTH=true,FRESHDESK_GROUP_ID=203000094600,CUSTOMER_AGENT_PUBLIC=true,CORS_ALLOWED_ORIGINS=*,RATE_LIMIT_TIER=dev" \
   --set-env-vars="AZURE_OPENAI_EMBEDDING_MODEL=text-embedding-3-small,AZURE_OPENAI_CHAT_MODEL=gpt-4o-mini" \
   --set-env-vars="OPENAI_MODEL=gpt-4o-mini,EMBEDDING_MODEL=text-embedding-3-small" \
   --set-env-vars="ASTRADB_KB_ENTRIES_COLLECTION=kb_entries,ASTRADB_PROPERTY_ENGINE_COLLECTION=kb_entries,REDIS_DB=0" \
@@ -51,6 +57,7 @@ gcloud run deploy $SERVICE_NAME \
   --set-secrets="FRESHDESK_API_KEY=FRESHDESK_API_KEY:latest" \
   --set-secrets="FRESHDESK_DOMAIN=FRESHDESK_DOMAIN:latest" \
   --set-secrets="FRESHDESK_RESPONDER_ID=FRESHDESK_RESPONDER_ID:latest" \
+  --set-secrets="FRESHDESK_WEBHOOK_SECRET=FRESHDESK_WEBHOOK_SECRET:latest" \
   --set-secrets="REDIS_HOST=REDIS_HOST:latest" \
   --set-secrets="REDIS_PORT=REDIS_PORT:latest" \
   --set-secrets="REDIS_PASSWORD=REDIS_PASSWORD:latest"

@@ -293,7 +293,15 @@ class VectorSyncService:
 
         # userType: must be one of the known audiences; lowercase; default to the safe
         # "internal" (never accidentally expose internal content to customers).
-        user_type = str(metadata.get("userType") or "internal").lower()
+        # Read from the chunk metadata, then the entry's top-level field, then the entry's
+        # NESTED metadata dict — many entries store the tag only in entry["metadata"]["userType"],
+        # and missing it here silently defaulted them all to "internal" (invisible to customers).
+        user_type = str(
+            metadata.get("userType")
+            or entry.get("userType")
+            or entry.get("metadata", {}).get("userType")
+            or "internal"
+        ).lower()
         if user_type not in self.VALID_USER_TYPES:
             logger.warning(
                 f"⚠️ Invalid userType '{user_type}' for {chunk.parent_id} — defaulting to 'internal'"

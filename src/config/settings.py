@@ -22,6 +22,16 @@ class Settings(BaseSettings):
     # migration window (e.g. before the frontend has started sending the token).
     REQUIRE_AUTH: bool = os.getenv("REQUIRE_AUTH", "true").lower() == "true"
 
+    # DEV/demo escape hatch: open ONLY the customer-facing flow (customer agent chat,
+    # feedback, escalation — all non-destructive) without auth, so a UI that can't yet
+    # authenticate can use it. KB management + admin stay locked regardless. Re-lock by
+    # setting this false once the UI sends Firebase tokens.
+    CUSTOMER_AGENT_PUBLIC: bool = os.getenv("CUSTOMER_AGENT_PUBLIC", "false").lower() == "true"
+
+    # Extra CORS origins (e.g. a demo/DEV UI on another domain), comma-separated.
+    # Merged with the built-in defaults in main.py.
+    CORS_ALLOWED_ORIGINS: str = os.getenv("CORS_ALLOWED_ORIGINS", "")
+
     # AstraDB Configuration
     ASTRADB_TOKEN: str = os.getenv("ASTRADB_APPLICATION_TOKEN", "")
     ASTRADB_ENDPOINT: str = os.getenv("ASTRADB_API_ENDPOINT", "")
@@ -59,6 +69,10 @@ class Settings(BaseSettings):
     FRESHDESK_API_KEY: Optional[str] = os.getenv("FRESHDESK_API_KEY")
     FRESHDESK_PRODUCT_ID: Optional[int] = int(os.getenv("FRESHDESK_PRODUCT_ID", "0")) or None
     FRESHDESK_RESPONDER_ID: Optional[int] = int(os.getenv("FRESHDESK_RESPONDER_ID", "0")) or None
+    # Route AI-created tickets to a group queue (e.g. Customer Support) instead of one agent.
+    FRESHDESK_GROUP_ID: Optional[int] = int(os.getenv("FRESHDESK_GROUP_ID", "0")) or None
+    # Shared secret Freshdesk sends as the X-Webhook-Secret header on the ticket-closed webhook.
+    FRESHDESK_WEBHOOK_SECRET: Optional[str] = os.getenv("FRESHDESK_WEBHOOK_SECRET")
     
     # Query Settings
     MAX_SEARCH_RESULTS: int = 6  # Increased from 3 for better context

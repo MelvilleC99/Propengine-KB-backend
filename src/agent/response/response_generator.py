@@ -4,6 +4,8 @@ Generates LLM responses using retrieved context and conversation history.
 """
 
 import logging
+import json
+import httpx
 from typing import List, Optional, Dict
 from langchain_openai import ChatOpenAI
 from langchain.schema import HumanMessage
@@ -137,14 +139,56 @@ class ResponseGenerator:
 
         logger.debug(f"Streaming response for: {query[:50]}...")
 
-        # NOTE: stream_usage is intentionally NOT requested — the company proxy does not
-        # support stream_options.include_usage and it breaks the stream. We estimate cost
-        # from text length instead (below).
+        # The LLM call goes through the SAME company proxy (same URL / key / model / PII
+        # protection) — but via a raw httpx SSE request instead of the langchain/openai-SDK
+        # client, so we yield each token AS IT ARRIVES rather than collecting it all first.
+        # NOTE: the company proxy currently BUFFERS any prompt > ~100 chars (its PII
+        # de-anonymisation collects the full response before returning), so real RAG answers
+        # still arrive as a single chunk regardless of HTTP client — see docs/LIMITATIONS.md.
+        # This path is correct and ready: it streams token-by-token the moment the proxy is
+        # fixed, and already streams short prompts. stream_usage is intentionally not requested;
+        # cost is estimated below.
         full_text_parts = []
-        async for chunk in self.llm.astream([HumanMessage(content=full_prompt)]):
-            if chunk.content:
-                full_text_parts.append(chunk.content)
-                yield chunk.content
+        url = settings.OPENAI_BASE_URL.rstrip("/") + "/chat/completions"
+        payload = {
+            "model": settings.OPENAI_MODEL,
+            "stream": True,
+            "temperature": 0.7,
+            "messages": [{"role": "user", "content": full_prompt}],
+        }
+        headers = {
+            "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
+            "Content-Type": "application/json",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=settings.LLM_TIMEOUT_SECONDS) as client:
+                async with client.stream("POST", url, json=payload, headers=headers) as resp:
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        if not line.startswith("data:"):
+                            continue
+                        data = line[len("data:"):].strip()
+                        if data == "[DONE]":
+                            break
+                        try:
+                            delta = json.loads(data)["choices"][0]["delta"].get("content")
+                        except (json.JSONDecodeError, KeyError, IndexError):
+                            continue
+                        if delta:
+                            full_text_parts.append(delta)
+                            yield delta
+        except Exception as e:
+            # Safety net: if the raw stream fails AND we haven't emitted anything yet, fall back
+            # to the non-streaming path so the chat never breaks (user gets the whole answer once).
+            logger.warning(f"httpx streaming failed ({e}); falling back to non-streaming")
+            if not full_text_parts:
+                full = await self.generate_response(
+                    query, contexts, conversation_context,
+                    session_id=session_id, search_results=search_results,
+                    clarification_type=clarification_type,
+                )
+                full_text_parts.append(full)
+                yield full
 
         # Best-effort cost estimate (no usage metadata on streamed responses).
         # Never let cost accounting break the stream.

@@ -25,6 +25,25 @@ logger = logging.getLogger(__name__)
 class EscalationHandler:
     """Decides whether/why/how to escalate. Pure rules — no LLM, no network."""
 
+    # Phrases that mean the LLM declined to answer from the retrieved context. Retrieval
+    # confidence can be high on topically-near-but-wrong docs, so the score alone misses
+    # these — we also scan the generated answer for these markers and escalate if found.
+    NON_ANSWER_MARKERS = (
+        "i don't have", "i do not have", "don't have specific", "do not have specific",
+        "couldn't find", "could not find", "i'm not able to", "i am not able to",
+        "no specific information", "don't have enough information", "i don't know",
+        "not in the knowledge base", "no information on",
+    )
+
+    def is_non_answer(self, response_text: str) -> bool:
+        """True if the generated answer is really a 'can't answer' response.
+
+        Catches the case where retrieval looked confident (good rerank score) but the
+        LLM still couldn't answer from the context — those should still offer a ticket.
+        """
+        text = (response_text or "").lower()
+        return any(marker in text for marker in self.NON_ANSWER_MARKERS)
+
     def check_escalation(
         self,
         query_type: str,

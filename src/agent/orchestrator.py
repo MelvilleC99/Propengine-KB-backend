@@ -221,6 +221,7 @@ class Agent:
                 yield {"type": "token", "text": text}
                 yield {"type": "metadata", "confidence": 1.0,
                        "requires_escalation": query_type == "escalation",
+                       "escalation_reason": "user_requested" if query_type == "escalation" else "none",
                        "query_type": query_type, "classification_confidence": classification_confidence,
                        "debug_metrics": debug_metrics}
                 yield {"type": "done"}
@@ -267,6 +268,7 @@ class Agent:
                 yield {"type": "metadata",
                        "confidence": response_dict.get("confidence", 0.9),
                        "requires_escalation": response_dict.get("requires_escalation", False),
+                       "escalation_reason": "low_confidence" if response_dict.get("requires_escalation") else "none",
                        "query_type": query_type, "classification_confidence": classification_confidence,
                        "debug_metrics": debug_metrics, "context_debug": context_debug}
                 yield {"type": "done"}
@@ -298,6 +300,7 @@ class Agent:
                 yield {"type": "sources", "sources": []}
                 yield {"type": "token", "text": text}
                 yield {"type": "metadata", "confidence": 0.0, "requires_escalation": True,
+                       "escalation_reason": "no_results",
                        "query_type": query_type, "classification_confidence": classification_confidence,
                        "enhanced_query": structured_query.enhanced, "debug_metrics": debug_metrics}
                 yield {"type": "done"}
@@ -348,6 +351,14 @@ class Agent:
             # Escalation decision via the EscalationHandler (single source of truth).
             escalation = self.escalation_handler.check_escalation(query_type, results, best_confidence)
             requires_escalation = escalation["should_escalate"]
+            escalation_reason = escalation["escalation_reason"] if requires_escalation else "none"
+            # Also escalate if the LLM produced a non-answer despite confident retrieval —
+            # rerank score can be high on topically-near-but-irrelevant docs (e.g. "create a
+            # contact" matching lead/listing entries), so the score alone misses these.
+            if not requires_escalation and self.escalation_handler.is_non_answer(response):
+                requires_escalation = True
+                escalation_reason = "non_answer"
+                logger.info("⚠️ Escalating: LLM returned a non-answer despite confident retrieval")
 
             related_documents = []
             for source in sources:
@@ -371,7 +382,8 @@ class Agent:
             context_debug = self._build_context_debug(
                 session_id, conversation_context, message_count, has_summary, context_length)
             yield {"type": "metadata", "confidence": best_confidence,
-                   "requires_escalation": requires_escalation, "query_type": query_type,
+                   "requires_escalation": requires_escalation, "escalation_reason": escalation_reason,
+                   "query_type": query_type,
                    "classification_confidence": classification_confidence,
                    "enhanced_query": structured_query.enhanced,
                    "query_metadata": {
