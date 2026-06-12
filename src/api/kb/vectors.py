@@ -32,7 +32,10 @@ async def sync_entry(entry_id: str):
         logger.info(f"Starting sync for entry: {entry_id}")
 
         sync_mcp = VectorSyncService()
-        result = await sync_mcp.sync_entry_to_vector(entry_id)
+        # Delete-first re-sync: removes the entry's old chunks from AstraDB, then re-embeds
+        # from current Firebase content. Prevents orphan chunks when an entry shrinks, and
+        # guarantees a clean, fresh vector (no stale/drifted embeddings left behind).
+        result = await sync_mcp.resync_entry(entry_id)
 
         if not result["success"]:
             raise HTTPException(

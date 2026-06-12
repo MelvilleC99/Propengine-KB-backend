@@ -177,6 +177,11 @@ async def update_entry(entry_id: str, request: UpdateEntryRequest):
                 detail="No fields to update"
             )
 
+        # An edit changes the content/tags, so the stored vector is now stale. Flag it as
+        # "pending" so it's never silently left drifting — the dashboard shows this badge, and
+        # it must be re-synced to take effect in search. (This is the drift-prevention fix.)
+        update_data["vectorStatus"] = "pending"
+
         firebase_mcp = FirebaseService()
         result = await firebase_mcp.update_entry(entry_id, update_data)
 

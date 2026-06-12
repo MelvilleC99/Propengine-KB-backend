@@ -311,10 +311,16 @@ class Agent:
             results = self.reranker.rerank_results(results, structured_query.enhanced)
             self.metrics_collector.record_reranking((time.time() - rerank_start) * 1000)
 
-            # STEP 9.5: clarification detection (ambiguous error queries)
+            # STEP 9.5: clarification detection — when the query is broad and the top matches are
+            # a CLUSTER of similar error/troubleshooting entries (e.g. "my listing won't sync"
+            # hitting many "Can't sync to portals - X" entries), ask the user to narrow it down
+            # instead of guessing one. Keyed off the RESULTS (entryType=error), not just the
+            # query_type — vague problem statements often classify as "general", not "error".
             clarification_type = None
-            if len(results) >= 3 and query_type == "error":
-                top_scores = [r.get("similarity_score", 0.0) for r in results[:4]]
+            top = results[:4]
+            error_hits = sum(1 for r in top if (r.get("metadata", {}) or {}).get("entryType") == "error")
+            if len(results) >= 3 and (query_type == "error" or error_hits >= 2):
+                top_scores = [r.get("similarity_score", 0.0) for r in top]
                 score_spread = max(top_scores) - min(top_scores) if len(top_scores) >= 2 else 1.0
                 has_specific_id = bool(re.search(
                     r'\b(error\s*\d+|\d{3,4}|rc[-\s]?\d+|reason\s*code|code\s*\d+)\b',

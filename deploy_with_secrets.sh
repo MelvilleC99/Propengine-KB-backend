@@ -15,6 +15,11 @@ SERVICE_NAME="knowledge-base-backend"
 REGION="us-central1"
 PLATFORM="managed"
 
+# Ensure the right account (gcloud sometimes reverts to a personal account between sessions,
+# which fails the deploy with PERMISSION_DENIED). Override via DEPLOY_ACCOUNT env if needed.
+DEPLOY_ACCOUNT="${DEPLOY_ACCOUNT:-Melville.Duplessis@Betterhome.co.za}"
+gcloud config set account "$DEPLOY_ACCOUNT" >/dev/null 2>&1 || true
+
 echo "📦 Service: $SERVICE_NAME"
 echo "🌍 Region: $REGION"
 echo ""
@@ -22,6 +27,12 @@ echo ""
 echo "🚀 Deploying to Cloud Run..."
 echo ""
 
+# ⚠️ TEMPORARY — TESTING/DEMO ONLY. Revert these THREE before production (in --set-env-vars below):
+#   CUSTOMER_AGENT_PUBLIC=true → customer chat (chat/feedback/escalation) is OPEN, NO auth.
+#                                Set false once the frontend sends Firebase tokens.
+#   RATE_LIMIT_TIER=dev        → 10k/day = effectively no rate limit. Use 'production' for real limits.
+#   CORS_ALLOWED_ORIGINS=*     → any origin allowed. Narrow to real domains for production.
+#   (REQUIRE_AUTH=true stays — support/test/KB/admin remain locked; only the customer flow is opened.)
 gcloud run deploy $SERVICE_NAME \
   --source . \
   --platform $PLATFORM \
@@ -33,12 +44,6 @@ gcloud run deploy $SERVICE_NAME \
   --timeout 300 \
   --min-instances 0 \
   --max-instances 10 \
-  # ⚠️ TEMPORARY — TESTING/DEMO ONLY. Revert these THREE before production:
-  #   CUSTOMER_AGENT_PUBLIC=true → customer chat (chat/feedback/escalation) is OPEN, NO auth.
-  #                                Set false once the frontend sends Firebase tokens.
-  #   RATE_LIMIT_TIER=dev        → 10k/day = effectively no rate limit. Use 'production' for real limits.
-  #   CORS_ALLOWED_ORIGINS=*     → any origin allowed. Narrow to real domains for production.
-  #   (REQUIRE_AUTH=true stays — support/test/KB/admin remain locked; only the customer flow is opened.)
   --set-env-vars="DEBUG=false,LOG_LEVEL=INFO,API_HOST=0.0.0.0,API_PORT=8080,REQUIRE_AUTH=true,FRESHDESK_GROUP_ID=203000094600,CUSTOMER_AGENT_PUBLIC=true,CORS_ALLOWED_ORIGINS=*,RATE_LIMIT_TIER=dev" \
   --set-env-vars="AZURE_OPENAI_EMBEDDING_MODEL=text-embedding-3-small,AZURE_OPENAI_CHAT_MODEL=gpt-4o-mini" \
   --set-env-vars="OPENAI_MODEL=gpt-4o-mini,EMBEDDING_MODEL=text-embedding-3-small" \
