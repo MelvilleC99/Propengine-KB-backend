@@ -39,3 +39,10 @@ def test_threshold_is_min_confidence_score():
     # exactly at the threshold should NOT escalate (uses < comparison)
     v = handler.check_escalation(query_type="howto", results=RESULTS, confidence=settings.MIN_CONFIDENCE_SCORE)
     assert v["should_escalate"] is False
+
+
+def test_non_answer_is_detected():
+    # Agent-can't-answer path #3: retrieval looked confident but the LLM declined to answer.
+    assert handler.is_non_answer("I don't have specific information on that topic.") is True
+    assert handler.is_non_answer("Sorry, I couldn't find anything in the knowledge base.") is True
+    assert handler.is_non_answer("To sync your listing, open it and click Publish.") is False
