@@ -40,3 +40,24 @@ async def verify_user(authorization: str = Header(None)):
         # Log the reason for us; return a generic message to the caller.
         logger.warning(f"Token verification failed: {e}")
         raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+
+async def verify_user_optional(authorization: str = Header(None)):
+    """Soft identity extractor — returns the decoded token if a valid one is present,
+    else None. Never raises.
+
+    Used by the customer chatbot routes to capture WHO is asking (createdBy) without
+    being the gate themselves. The hard gate is the router-level `_customer_auth` in
+    main.py: when CUSTOMER_AGENT_PUBLIC is true the flow is open (and this just grabs the
+    identity if a token happens to be sent); when false, `_customer_auth` (verify_user)
+    enforces a token before the request reaches the route, and this then decodes it.
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization.split(" ", 1)[1].strip()
+    try:
+        return firebase_auth.verify_id_token(token)
+    except Exception as e:
+        # In the open window an invalid token shouldn't 401 the customer; just drop identity.
+        logger.warning(f"Optional token verification failed (ignored): {e}")
+        return None

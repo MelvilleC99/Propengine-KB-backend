@@ -1,0 +1,36 @@
+"""Pydantic request models for the /api/chatbot/* endpoints.
+
+These define the request contract only; responses for the chat endpoint are an NDJSON
+stream (see interactions.py), and the read/feedback/escalation endpoints return plain
+dicts. The interaction/session shapes themselves live in Firestore (see
+firebase_interaction_service.py) — they aren't fixed response models because the frontend
+reads them as-is.
+"""
+
+from pydantic import BaseModel, Field
+from typing import Optional, Dict, List
+
+
+class InteractionRequest(BaseModel):
+    """POST /api/chatbot/interactions — ask a question (the answer streams back)."""
+    message: str = Field(..., description="The user's question")
+    session_id: Optional[str] = Field(
+        None, description="Existing conversation to continue; omit to start a new one")
+    user_info: Optional[Dict] = Field(
+        default_factory=dict,
+        description=("Business-context snapshot (agency/office/user_type, etc.). "
+                     "Identity is taken from the auth token when present; user_info is "
+                     "the migration fallback and the context stored on the session."))
+
+
+class FeedbackRequest(BaseModel):
+    """POST /api/chatbot/interactions/{id}/feedback — 👍/👎 on a turn."""
+    feedback_type: str = Field(..., description="'positive' or 'negative'")
+    comment: Optional[str] = Field(None, description="Optional free-text comment")
+
+
+class EscalationRequest(BaseModel):
+    """POST /api/chatbot/interactions/{id}/escalation — raise a Freshdesk ticket for a turn."""
+    user_phone: Optional[str] = Field(None, description="Optional contact number for the ticket")
+    conversation_history: Optional[List[Dict]] = Field(
+        None, description="Optional transcript to attach to the ticket")
