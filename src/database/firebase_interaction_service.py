@@ -27,6 +27,15 @@ from src.database.firebase_client import get_firestore_client
 logger = logging.getLogger(__name__)
 
 
+def _ts(value) -> float:
+    """Epoch seconds for a Firestore timestamp/datetime, or 0.0 if missing — used as a safe
+    Python sort key (avoids needing Firestore composite indexes for where+order_by queries)."""
+    try:
+        return value.timestamp()
+    except Exception:
+        return 0.0
+
+
 class FirebaseInteractionService:
     """CRUD for the chatbot `sessions` + `interactions` collections."""
 
@@ -70,6 +79,9 @@ class FirebaseInteractionService:
             "last_activity": SERVER_TIMESTAMP,
             "interaction_count": 0,
             "status": "active",
+            # A short label for the conversation (e.g. "Listing sync issue"), shown in the
+            # history UI. Stored null on creation; populated later by a summariser (follow-up).
+            "summary": None,
         }
         try:
             if self.db:
@@ -107,21 +119,28 @@ class FirebaseInteractionService:
             return None
 
     def list_sessions(self, created_by: str, limit: int = 50) -> List[Dict]:
-        """List a user's conversations, most recent activity first."""
+        """List a user's conversations, most recent activity first.
+
+        Sorted in Python (not Firestore order_by) so we don't need a composite index for
+        the where(created_by)+order_by(last_activity) combo. Fine for these volumes.
+        """
         try:
             if not self.db:
                 return []
-            q = (self.db.collection(self.sessions_collection)
-                 .where("created_by", "==", created_by)
-                 .order_by("last_activity", direction="DESCENDING")
-                 .limit(limit))
-            return [d.to_dict() for d in q.get()]
+            q = self.db.collection(self.sessions_collection).where("created_by", "==", created_by)
+            sessions = [d.to_dict() for d in q.get()]
+            sessions.sort(key=lambda s: _ts(s.get("last_activity")), reverse=True)
+            return sessions[:limit]
         except Exception as e:
             logger.error(f"❌ Failed to list sessions for {created_by}: {e}")
             return []
 
     def get_session_with_interactions(self, session_id: str) -> Optional[Dict]:
-        """One conversation with all its interactions in chronological order."""
+        """One conversation with all its interactions in chronological order.
+
+        The interactions are sorted in Python (not Firestore order_by) to avoid needing a
+        composite index for where(session_id)+order_by(created_at).
+        """
         try:
             if not self.db:
                 return None
@@ -129,10 +148,10 @@ class FirebaseInteractionService:
             if not doc.exists:
                 return None
             session = doc.to_dict()
-            q = (self.db.collection(self.interactions_collection)
-                 .where("session_id", "==", session_id)
-                 .order_by("created_at", direction="ASCENDING"))
-            session["interactions"] = [d.to_dict() for d in q.get()]
+            q = self.db.collection(self.interactions_collection).where("session_id", "==", session_id)
+            interactions = [d.to_dict() for d in q.get()]
+            interactions.sort(key=lambda i: _ts(i.get("created_at")))
+            session["interactions"] = interactions
             return session
         except Exception as e:
             logger.error(f"❌ Failed to load session {session_id}: {e}")
@@ -159,11 +178,20 @@ class FirebaseInteractionService:
             "session_id": session_id,
             "created_by": created_by,
             "question": question,
-            "answer": "",
+            "answer": None,                 # string | null — filled on complete
             "status": "streaming",
-            "metadata": {},
+            # metadata carries the full shape up front so it's never a bare {} (contract)
+            "metadata": {
+                "sources_count": 0,
+                "query_type": None,
+                "sources_used": [],
+                "enhanced_query": None,
+                "confidence": None,
+            },
             "escalation_required": False,
             "escalation_reason": "none",
+            "escalation_decision": None,    # 'create-ticket' | 'decline' | null
+            "escalation_decided_at": None,  # ISO timestamp | null
             "feedback": None,
             "ticket": None,
             "created_at": SERVER_TIMESTAMP,
@@ -234,6 +262,30 @@ class FirebaseInteractionService:
             }
         })
 
+    def set_escalation_decision(self, interaction_id: str, decision: str) -> Dict:
+        """Record the user's escalation decision ('create-ticket' | 'decline') on the turn."""
+        return self._update(interaction_id, {
+            "escalation_decision": decision,
+            "escalation_decided_at": datetime.now().isoformat(),
+        })
+
+    def build_conversation_history(self, session_id: str) -> List[Dict]:
+        """Build TRUSTED conversation history for a session from Firestore (not the UI).
+
+        Returns a chronological [{role, content}, …] list — user question then assistant
+        answer for each interaction — in the shape the Freshdesk service expects.
+        """
+        session = self.get_session_with_interactions(session_id)
+        if not session:
+            return []
+        history: List[Dict] = []
+        for it in session.get("interactions", []):
+            if it.get("question"):
+                history.append({"role": "user", "content": it["question"]})
+            if it.get("answer"):
+                history.append({"role": "assistant", "content": it["answer"]})
+        return history
+
     def attach_ticket(self, interaction_id: str, ticket: Dict) -> Dict:
         """Record (or update) the Freshdesk ticket linked to this interaction."""
         return self._update(interaction_id, {"ticket": ticket})
@@ -266,11 +318,13 @@ class FirebaseInteractionService:
 
             for d in docs:
                 ticket = (d.to_dict().get("ticket") or {})
+                # Contract: ticket.status is only 'open' | 'closed'. This is the close webhook,
+                # so the stored status is always 'closed' (the raw Freshdesk status is logged).
                 ticket.update({
-                    "status": status or "closed",
-                    "agent_name": agent_name,
-                    "root_cause": root_cause,
-                    "solution_steps": solution_steps,
+                    "status": "closed",
+                    "agent_name": agent_name or "",
+                    "root_cause": root_cause or "",
+                    "solution_steps": solution_steps or "",
                     "closed_at": datetime.now().isoformat(),
                 })
                 col.document(d.id).update({"ticket": ticket})

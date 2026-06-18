@@ -8,7 +8,7 @@ reads them as-is.
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, List
+from typing import Optional, Dict
 
 
 class InteractionRequest(BaseModel):
@@ -30,7 +30,16 @@ class FeedbackRequest(BaseModel):
 
 
 class EscalationRequest(BaseModel):
-    """POST /api/chatbot/interactions/{id}/escalation — raise a Freshdesk ticket for a turn."""
-    user_phone: Optional[str] = Field(None, description="Optional contact number for the ticket")
-    conversation_history: Optional[List[Dict]] = Field(
-        None, description="Optional transcript to attach to the ticket")
+    """POST /api/chatbot/interactions/{id}/escalation — record the escalation decision.
+
+    The UI sends ONLY the decision. On 'create-ticket' the backend builds the conversation
+    history itself (from Firestore) and raises a Freshdesk ticket; on 'decline' it just
+    records the decision. We never accept UI-supplied conversation history (can't trust it).
+
+    Accepts the JSON key `escalationDecision` (per the frontend contract); also tolerates
+    the snake_case `escalation_decision` until the casing convention is finalised.
+    """
+    escalation_decision: str = Field(
+        ..., alias="escalationDecision", description="'create-ticket' or 'decline'")
+
+    model_config = {"populate_by_name": True}

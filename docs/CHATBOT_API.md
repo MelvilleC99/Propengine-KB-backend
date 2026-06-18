@@ -22,13 +22,14 @@ Each **turn** is one durable `interaction` record (question → answer → sourc
 escalation → ticket). Interactions are grouped under a `session` (one conversation).
 
 ```
-session  (one conversation, belongs to a user)
+session  (one conversation; belongs to a user; has a `summary` label for the history UI)
 └── interaction  (one turn)
-      question, answer, status,
-      metadata { confidence, sources_used },
+      question, answer, status, created_at, completed_at,
+      metadata { sources_count, query_type, sources_used, enhanced_query, confidence },
       escalation_required, escalation_reason,
-      feedback { type, comment },
-      ticket   { ticket_id, status, root_cause, solution_steps }
+      escalation_decision, escalation_decided_at,
+      feedback { type, comment, at },
+      ticket   { ticket_id, subject, priority, status, agent_name, root_cause, solution_steps, created_at, closed_at }
 ```
 
 ---
@@ -85,12 +86,16 @@ Creates (or continues) a session and a new interaction, then streams the answer.
 { "success": true, "interaction": {
   "id":"c3d4…","session_id":"a1b2…","created_by":"<user-id>",
   "question":"…","answer":"…","status":"complete",          // streaming | complete | failed
-  "metadata":{"confidence":0.78,"sources_used":["Syncing listings to portals"],"sources_count":1},
+  "created_at":"…","completed_at":"…",
+  "metadata":{"sources_count":1,"query_type":"howto","sources_used":["Syncing listings to portals"],"enhanced_query":"…","confidence":0.78},
   "escalation_required":false,"escalation_reason":"none",
-  "feedback":null,"ticket":null
+  "escalation_decision":null,"escalation_decided_at":null,   // 'create-ticket'|'decline'|null
+  "feedback":null,
+  "ticket":null   // when set: {ticket_id, subject, priority, status:'open'|'closed', agent_name, root_cause, solution_steps, created_at, closed_at}
 }}
 ```
 Poll this after a refresh if a stream was interrupted (`status` tells you if it finished).
+This matches the agreed `TInteraction` type exactly (snake_case fields).
 
 ### 3. `POST /api/chatbot/interactions/{id}/feedback` — 👍 / 👎
 ```json
@@ -98,14 +103,20 @@ Poll this after a refresh if a stream was interrupted (`status` tells you if it 
 ```
 → `{ "success": true, "message": "Feedback saved" }`
 
-### 4. `POST /api/chatbot/interactions/{id}/escalation` — raise a Freshdesk ticket
-Reached by both flows (user asked, or agent offered after it couldn't answer).
+### 4. `POST /api/chatbot/interactions/{id}/escalation` — record the escalation decision
+Send **only** the decision. The backend builds the conversation history itself (from the
+session's stored interactions) — it never trusts a UI-supplied transcript.
 ```json
-{ "user_phone": "optional", "conversation_history": [ /* optional */ ] }
+{ "escalationDecision": "create-ticket" }      // or "decline"
 ```
-→ `{ "success": true, "ticket_id": 18500, "message": "Ticket #18500 created" }`
-Idempotent — a second call returns the existing ticket. The resolution (root cause / steps) is
-written back onto the interaction automatically when support closes the ticket.
+- `decline` → records the decision, no ticket → `{ "success": true, "decision": "decline" }`
+- `create-ticket` → records the decision, builds trusted history, raises a Freshdesk ticket
+  → `{ "success": true, "ticket_id": 18500, "message": "Ticket #18500 created" }`
+
+Both decisions store `escalation_decision` + `escalation_decided_at` on the interaction.
+`create-ticket` is idempotent (a second call returns the existing ticket). The resolution
+(root cause / steps, `status:"closed"`) is written back onto the interaction's `ticket`
+automatically when support closes the ticket.
 
 ### 5. `GET /api/chatbot/sessions` — list the user's conversations
 → `{ "success": true, "sessions": [ {session…} ], "count": N }` (most recent first; needs auth)
@@ -136,9 +147,13 @@ are naturally separated by issuer; `aud` is an extra guard.)
 ---
 
 ## Notes for the build
-- **Field casing:** responses currently use `snake_case` (`session_id`, `escalation_required`).
-  If your types expect `camelCase`, tell us and we'll map the response keys — easy change, but
-  let's agree it before you build against it.
+- **Field casing — needs a decision (contract item #1):** stored docs and GET responses are
+  `snake_case` (matches your `TInteraction`), but the escalation request you specified uses
+  `camelCase` (`escalationDecision`), and `POST /interactions` uses `snake_case` (`session_id`,
+  `user_info`). Let's pick one rule: **(a)** request bodies `camelCase` + stored/responses
+  `snake_case`, or **(b)** everything `snake_case`. Right now the escalation endpoint **accepts
+  both** `escalationDecision` and `escalation_decision` so you're not blocked — but we should
+  lock the rule and make it consistent.
 - **Streaming:** answers stream token-by-token (the backend uses a self-hosted model for this).
 - **Errors:** a failed turn ends the stream with `{"type":"error","message":"…"}` and the
   interaction is saved with `status:"failed"`.

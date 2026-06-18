@@ -46,9 +46,26 @@ class FakeService:
     def create_interaction(self, session_id, created_by, question, user_info=None):
         iid = f"int-{len(self.interactions) + 1}"
         self.interactions[iid] = {"id": iid, "session_id": session_id, "created_by": created_by,
-                                  "question": question, "answer": "", "status": "streaming",
-                                  "feedback": None, "ticket": None}
+                                  "question": question, "answer": None, "status": "streaming",
+                                  "feedback": None, "ticket": None,
+                                  "escalation_decision": None, "escalation_decided_at": None}
         return iid
+
+    def set_escalation_decision(self, interaction_id, decision):
+        self.interactions[interaction_id]["escalation_decision"] = decision
+        self.interactions[interaction_id]["escalation_decided_at"] = "2026-01-01T00:00:00"
+        return {"success": True}
+
+    def build_conversation_history(self, session_id):
+        hist = []
+        for i in self.interactions.values():
+            if i["session_id"] != session_id:
+                continue
+            if i.get("question"):
+                hist.append({"role": "user", "content": i["question"]})
+            if i.get("answer"):
+                hist.append({"role": "assistant", "content": i["answer"]})
+        return hist
 
     def complete_interaction(self, interaction_id, answer, sources, metadata):
         meta = metadata or {}
@@ -170,21 +187,42 @@ def test_feedback_accepts_and_stores(chat):
     assert svc.interactions[iid]["feedback"]["type"] == "positive"
 
 
-def test_escalation_creates_and_links_ticket(chat):
+def test_escalation_create_ticket(chat):
     client, svc = chat
     sid = svc.create_or_get_session("user-1", {"email": "j@x.co"})
     iid = svc.create_interaction(sid, "user-1", "help me")
-    resp = client.post(f"/api/chatbot/interactions/{iid}/escalation", json={})
+    resp = client.post(f"/api/chatbot/interactions/{iid}/escalation",
+                       json={"escalationDecision": "create-ticket"})
     assert resp.status_code == 200
     assert resp.json()["ticket_id"] == 18500
     assert svc.interactions[iid]["ticket"]["ticket_id"] == 18500
+    assert svc.interactions[iid]["escalation_decision"] == "create-ticket"
+
+
+def test_escalation_decline_records_no_ticket(chat):
+    client, svc = chat
+    iid = svc.create_interaction(svc.create_or_get_session("user-1", {}), "user-1", "help")
+    resp = client.post(f"/api/chatbot/interactions/{iid}/escalation",
+                       json={"escalationDecision": "decline"})
+    assert resp.status_code == 200
+    assert resp.json()["decision"] == "decline"
+    assert svc.interactions[iid]["escalation_decision"] == "decline"
+    assert svc.interactions[iid]["ticket"] is None  # no ticket on decline
+
+
+def test_escalation_rejects_bad_decision(chat):
+    client, svc = chat
+    iid = svc.create_interaction(svc.create_or_get_session("user-1", {}), "user-1", "q")
+    assert client.post(f"/api/chatbot/interactions/{iid}/escalation",
+                       json={"escalationDecision": "maybe"}).status_code == 400
 
 
 def test_escalation_is_idempotent(chat):
     client, svc = chat
     iid = svc.create_interaction(svc.create_or_get_session("user-1", {}), "user-1", "help")
     svc.interactions[iid]["ticket"] = {"ticket_id": 999}
-    resp = client.post(f"/api/chatbot/interactions/{iid}/escalation", json={})
+    resp = client.post(f"/api/chatbot/interactions/{iid}/escalation",
+                       json={"escalationDecision": "create-ticket"})
     assert resp.status_code == 200
     assert resp.json()["ticket_id"] == 999  # existing ticket returned, not a new one
 

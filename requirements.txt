@@ -1,6 +1,9 @@
 # Core dependencies
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
+# Pin httpx: starlette 0.27 (via fastapi 0.104) TestClient is incompatible with httpx>=0.28
+# (which dropped the `app=` shortcut). 0.27.x works for both the app and the test harness.
+httpx==0.27.2
 pydantic==2.5.0
 pydantic-settings==2.1.0
 python-dotenv==1.0.0

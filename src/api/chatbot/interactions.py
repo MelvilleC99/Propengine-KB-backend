@@ -151,54 +151,75 @@ async def create_escalation(
     http_request: Request,
     user=Depends(verify_user_optional),
 ):
-    """Raise a Freshdesk ticket for this turn and link it back to the interaction.
+    """Record the user's escalation decision for a turn.
 
-    Reached by BOTH escalation flows — the user explicitly asking for a ticket and the
-    agent offering one after it couldn't answer. Uses the question/answer/confidence
-    already stored on the interaction, plus the business context on the session.
+    Request: {"escalationDecision": "create-ticket" | "decline"} — and nothing else.
+      - 'decline'       → record the decision; no ticket.
+      - 'create-ticket' → record the decision, build the conversation history server-side
+                          from the session's interactions (we never trust UI-supplied
+                          history), and raise a Freshdesk ticket linked to this interaction.
     """
+    decision = request.escalation_decision
+    if decision not in ("create-ticket", "decline"):
+        raise HTTPException(status_code=400, detail="escalationDecision must be 'create-ticket' or 'decline'")
+
     svc = get_service()
     interaction = svc.get_interaction(interaction_id)
     if not interaction:
         raise HTTPException(status_code=404, detail="Interaction not found")
 
+    # Record the decision on the interaction (both flows).
+    svc.set_escalation_decision(interaction_id, decision)
+
+    if decision == "decline":
+        return {"success": True, "decision": "decline", "message": "Escalation declined"}
+
+    # --- create-ticket ---
     # Idempotent: don't double-create a ticket for the same turn.
     if interaction.get("ticket"):
         return {"success": True, "ticket_id": interaction["ticket"].get("ticket_id"),
                 "message": "Ticket already exists"}
 
     session = svc.get_session(interaction.get("session_id")) or {}
-
     check_rate_limit(
         request=http_request, endpoint_type="ticket",
         agent_id=interaction.get("created_by"), user_email=session.get("user_email"),
     )
 
+    # TRUSTED conversation history — built from Firestore (the session's interactions),
+    # NOT from the client (which the UI deliberately doesn't send).
+    conversation_history = svc.build_conversation_history(interaction.get("session_id"))
+
     meta = interaction.get("metadata", {}) or {}
     user_email = session.get("user_email") or "support@propertyengine.co.za"
-
     freshdesk = get_freshdesk_service()
     ticket_result = await freshdesk.create_escalation_ticket(
         query=interaction.get("question", ""),
-        agent_response=interaction.get("answer", ""),
+        agent_response=interaction.get("answer") or "",
         confidence_score=meta.get("confidence") or 0,
         user_email=user_email,
         user_name=session.get("user_name"),
-        user_phone=request.user_phone,
+        user_phone=None,
         user_agency=session.get("agency"),
         user_office=session.get("office"),
-        conversation_history=request.conversation_history,
+        conversation_history=conversation_history,
         escalation_reason=interaction.get("escalation_reason", "user_requested"),
     )
     if not ticket_result["success"]:
         raise HTTPException(status_code=500, detail=f"Freshdesk error: {ticket_result.get('error')}")
 
+    # Open-ticket shape; resolution fields (agent_name/root_cause/solution_steps/closed_at)
+    # are filled by the Freshdesk close webhook later (contract: ticket.status is open|closed).
     ticket = {
         "ticket_id": ticket_result["ticket_id"],
-        "subject": ticket_result.get("ticket_subject"),
-        "priority": ticket_result.get("ticket_priority"),
+        "subject": ticket_result.get("ticket_subject") or "",
+        "priority": str(ticket_result.get("ticket_priority") or ""),
         "status": "open",
+        "agent_name": "",
+        "root_cause": "",
+        "solution_steps": "",
         "created_at": datetime.now().isoformat(),
+        "closed_at": "",
     }
     svc.attach_ticket(interaction_id, ticket)
     logger.info(f"✅ Ticket #{ticket_result['ticket_id']} created for interaction {interaction_id}")
