@@ -80,6 +80,15 @@ Creates (or continues) a session and a new interaction, then streams the answer.
 - Keep `interaction_id` — you need it for feedback, escalation, and resume.
 - If the connection drops mid-stream, poll endpoint #2 to get the final answer.
 - Frame order is fixed: `session → sources → token* → metadata → done` (or `error`).
+- **Rendering tokens — IMPORTANT.** Each `token` frame's `text` is a **raw fragment that
+  already carries its own spacing**. **Concatenate them directly** — never add a separator:
+  ```js
+  answer += frame.text          // ✅ correct  → "Bedrooms", "Mandate"
+  // answer += " " + frame.text // ❌ wrong     → "Bed rooms", "Mand ate"
+  // tokens.join(" ")           // ❌ wrong (same problem)
+  ```
+  Joining with a space splits words mid-token (the model streams sub-word pieces). The
+  backend's assembled/stored answer is already clean — only the live render must concatenate.
 
 ### 2. `GET /api/chatbot/interactions/{id}` — read / resume one turn
 ```json
