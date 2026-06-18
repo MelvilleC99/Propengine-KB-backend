@@ -33,6 +33,9 @@ echo ""
 #   RATE_LIMIT_TIER=dev        → 10k/day = effectively no rate limit. Use 'production' for real limits.
 #   CORS_ALLOWED_ORIGINS=*     → any origin allowed. Narrow to real domains for production.
 #   (REQUIRE_AUTH=true stays — support/test/KB/admin remain locked; only the customer flow is opened.)
+# NOTE: RESPONSE_USE_QWEN=true is NOT a revert-me flag — it makes answer generation use the
+# self-hosted Qwen gateway (real token streaming; embeddings stay on OpenAI). It is intended to
+# stay on. Requires the QWEN_API_KEY secret to exist in Secret Manager (see README/comment below).
 gcloud run deploy $SERVICE_NAME \
   --source . \
   --platform $PLATFORM \
@@ -46,7 +49,7 @@ gcloud run deploy $SERVICE_NAME \
   --max-instances 10 \
   --set-env-vars="DEBUG=false,LOG_LEVEL=INFO,API_HOST=0.0.0.0,API_PORT=8080,REQUIRE_AUTH=true,FRESHDESK_GROUP_ID=203000094600,CUSTOMER_AGENT_PUBLIC=true,CORS_ALLOWED_ORIGINS=*,RATE_LIMIT_TIER=dev" \
   --set-env-vars="AZURE_OPENAI_EMBEDDING_MODEL=text-embedding-3-small,AZURE_OPENAI_CHAT_MODEL=gpt-4o-mini" \
-  --set-env-vars="OPENAI_MODEL=gpt-4o-mini,EMBEDDING_MODEL=text-embedding-3-small" \
+  --set-env-vars="OPENAI_MODEL=gpt-4o-mini,EMBEDDING_MODEL=text-embedding-3-small,RESPONSE_USE_QWEN=true" \
   --set-env-vars="ASTRADB_KB_ENTRIES_COLLECTION=kb_entries,ASTRADB_PROPERTY_ENGINE_COLLECTION=kb_entries,REDIS_DB=0" \
   --set-secrets="FIREBASE_PROJECT_ID=FIREBASE_PROJECT_ID:latest" \
   --set-secrets="FIREBASE_CLIENT_EMAIL=FIREBASE_CLIENT_EMAIL:latest" \
@@ -59,6 +62,7 @@ gcloud run deploy $SERVICE_NAME \
   --set-secrets="AZURE_OPENAI_BASE_URL=AZURE_OPENAI_BASE_URL:latest" \
   --set-secrets="OPENAI_API_KEY=OPENAI_API_KEY:latest" \
   --set-secrets="OPENAI_BASE_URL=OPENAI_BASE_URL:latest" \
+  --set-secrets="QWEN_API_KEY=QWEN_API_KEY:latest" \
   --set-secrets="FRESHDESK_API_KEY=FRESHDESK_API_KEY:latest" \
   --set-secrets="FRESHDESK_DOMAIN=FRESHDESK_DOMAIN:latest" \
   --set-secrets="FRESHDESK_RESPONDER_ID=FRESHDESK_RESPONDER_ID:latest" \
