@@ -46,6 +46,15 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 
+    # Response model selection. The OpenAI proxy buffers streamed responses (>~100 chars,
+    # PII de-anonymisation), so the answer arrives as one chunk. The Qwen gateway streams
+    # token-by-token (verified). Set RESPONSE_USE_QWEN=true to generate ANSWERS via Qwen.
+    # Embeddings ALWAYS stay on OpenAI (EMBEDDING_MODEL) — only answer generation switches.
+    RESPONSE_USE_QWEN: bool = os.getenv("RESPONSE_USE_QWEN", "false").lower() == "true"
+    QWEN_API_KEY: str = os.getenv("QWEN_API_KEY", "")
+    QWEN_BASE_URL: str = os.getenv("QWEN_BASE_URL", "https://ai-api.betterhome-ai.co.za/v1")
+    QWEN_MODEL: str = os.getenv("QWEN_MODEL", "qwen3.6")
+
     # LLM request safety — a single call fails fast instead of hanging if the proxy stalls.
     LLM_TIMEOUT_SECONDS: int = int(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
     LLM_MAX_RETRIES: int = int(os.getenv("LLM_MAX_RETRIES", "2"))

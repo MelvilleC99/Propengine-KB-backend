@@ -286,7 +286,7 @@ async def fd_ticket_closed(request: Request):
             logger.warning("⚠️ Webhook missing ticket_id")
             return {"success": False, "error": "Missing ticket_id"}
 
-        # Update Firebase record with resolution details
+        # Update the LEGACY agent_failures record with resolution details.
         service = get_failure_service()
         result = service.update_ticket_closed(
             ticket_id=int(ticket_id),
@@ -294,6 +294,23 @@ async def fd_ticket_closed(request: Request):
             root_cause=root_cause,
             solution_steps=solution_steps
         )
+
+        # Also update the NEW interaction-centric record, if this ticket was raised via the
+        # /api/chatbot escalation flow. Parallel-run: a ticket lives in agent_failures OR in
+        # chatbot_interactions — update both, best-effort, so the resolution lands wherever it is.
+        try:
+            from src.database.firebase_interaction_service import FirebaseInteractionService
+            interaction_result = FirebaseInteractionService().update_ticket_closed(
+                ticket_id=int(ticket_id),
+                agent_name=agent_name,
+                root_cause=root_cause,
+                solution_steps=solution_steps,
+                status=status,
+            )
+            if interaction_result.get("found"):
+                logger.info(f"✅ Interaction updated for closed ticket #{ticket_id}")
+        except Exception as e:
+            logger.warning(f"⚠️ Interaction update skipped for ticket #{ticket_id}: {e}")
 
         if result["success"]:
             logger.info(f"✅ Ticket #{ticket_id} closed, failure record updated")

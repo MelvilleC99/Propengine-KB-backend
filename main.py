@@ -165,6 +165,18 @@ app.include_router(agent_failure_routes.webhook_router, tags=["agent-failure-web
 app.include_router(session_endpoints.router, prefix="/api", tags=["sessions"], dependencies=_auth)
 app.include_router(user_routes.router, tags=["users"], dependencies=_auth)  # User management
 
+# New interaction-centric chatbot API (/api/chatbot/*) — runs in PARALLEL with the legacy
+# customer routes during migration. Gated like the customer flow (_customer_auth: open while
+# CUSTOMER_AGENT_PUBLIC=true). Wrapped in try/except so a failure in this new, optional layer
+# can NEVER stop the app from booting — worst case it just doesn't register and the existing
+# routers keep serving. Remove this block (or `git checkout main.py`) to fully revert.
+try:
+    from src.api import chatbot
+    app.include_router(chatbot.router, dependencies=_customer_auth)
+    logger.info("✅ Chatbot API registered (/api/chatbot/*)")
+except Exception as e:
+    logger.error(f"⚠️ Chatbot API NOT registered (app still running): {e}", exc_info=True)
+
 @app.get("/")
 async def root():
     """Root endpoint"""

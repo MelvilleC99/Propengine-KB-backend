@@ -238,6 +238,47 @@ class FirebaseInteractionService:
         """Record (or update) the Freshdesk ticket linked to this interaction."""
         return self._update(interaction_id, {"ticket": ticket})
 
+    def update_ticket_closed(
+        self,
+        ticket_id,
+        agent_name: Optional[str] = None,
+        root_cause: Optional[str] = None,
+        solution_steps: Optional[str] = None,
+        status: Optional[str] = None,
+    ) -> Dict:
+        """Find the interaction linked to this Freshdesk ticket and record its resolution.
+
+        Called by the Freshdesk close webhook. Looks up the interaction by `ticket.ticket_id`
+        (matching int OR string form, since we store whatever Freshdesk sent) and merges the
+        resolution onto the existing ticket map. Best-effort: returns whether a match was
+        found, so the webhook can stay quiet when the ticket came from the legacy flow instead.
+        """
+        try:
+            if not self.db:
+                return {"success": False, "found": False, "error": "Firestore unavailable"}
+
+            col = self.db.collection(self.interactions_collection)
+            docs = list(col.where("ticket.ticket_id", "==", ticket_id).get())
+            if not docs:  # ticket_id type can differ (int vs str) — try the string form
+                docs = list(col.where("ticket.ticket_id", "==", str(ticket_id)).get())
+            if not docs:
+                return {"success": True, "found": False}
+
+            for d in docs:
+                ticket = (d.to_dict().get("ticket") or {})
+                ticket.update({
+                    "status": status or "closed",
+                    "agent_name": agent_name,
+                    "root_cause": root_cause,
+                    "solution_steps": solution_steps,
+                    "closed_at": datetime.now().isoformat(),
+                })
+                col.document(d.id).update({"ticket": ticket})
+            return {"success": True, "found": True, "count": len(docs)}
+        except Exception as e:
+            logger.error(f"❌ Failed to update interaction for closed ticket {ticket_id}: {e}")
+            return {"success": False, "found": False, "error": str(e)}
+
     def _update(self, interaction_id: str, fields: Dict[str, Any]) -> Dict:
         try:
             if not self.db:

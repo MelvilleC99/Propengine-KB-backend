@@ -21,10 +21,25 @@ class ResponseGenerator:
     
     def __init__(self):
         """Initialize LLM and load prompts"""
+        # Pick the ANSWER-generation model once. Default = OpenAI proxy (gpt-4o-mini), which
+        # buffers streamed responses (PII de-anon). With RESPONSE_USE_QWEN=true we generate
+        # via the Qwen gateway instead — it streams token-by-token (verified). Both the
+        # streaming and non-streaming paths use these, so the model stays consistent.
+        # Embeddings are a separate call and are NOT affected by this switch.
+        if settings.RESPONSE_USE_QWEN:
+            self.response_api_key = settings.QWEN_API_KEY
+            self.response_base_url = settings.QWEN_BASE_URL
+            self.response_model = settings.QWEN_MODEL
+            logger.info(f"🟣 Response model: Qwen ({self.response_model}) — token streaming enabled")
+        else:
+            self.response_api_key = settings.OPENAI_API_KEY
+            self.response_base_url = settings.OPENAI_BASE_URL
+            self.response_model = settings.OPENAI_MODEL
+
         self.llm = ChatOpenAI(
-            api_key=settings.OPENAI_API_KEY,
-            base_url=settings.OPENAI_BASE_URL,
-            model=settings.OPENAI_MODEL,
+            api_key=self.response_api_key,
+            base_url=self.response_base_url,
+            model=self.response_model,
             temperature=0.7,
             timeout=settings.LLM_TIMEOUT_SECONDS,
             max_retries=settings.LLM_MAX_RETRIES,
@@ -105,13 +120,17 @@ class ResponseGenerator:
 
         response = await self.llm.ainvoke([HumanMessage(content=full_prompt)])
 
-        # Track token usage and cost
-        token_tracker.track_chat_usage(
-            response=response,
-            model=settings.OPENAI_MODEL,
-            session_id=session_id,
-            operation="response_generation"
-        )
+        # Track token usage and cost (best-effort — never let cost accounting break a reply,
+        # e.g. if the response model isn't in the cost table).
+        try:
+            token_tracker.track_chat_usage(
+                response=response,
+                model=self.response_model,
+                session_id=session_id,
+                operation="response_generation"
+            )
+        except Exception as e:
+            logger.debug(f"Cost tracking skipped: {e}")
 
         logger.info(f"✅ Response generated ({len(response.content)} chars)")
 
@@ -139,25 +158,23 @@ class ResponseGenerator:
 
         logger.debug(f"Streaming response for: {query[:50]}...")
 
-        # The LLM call goes through the SAME company proxy (same URL / key / model / PII
-        # protection) — but via a raw httpx SSE request instead of the langchain/openai-SDK
-        # client, so we yield each token AS IT ARRIVES rather than collecting it all first.
-        # NOTE: the company proxy currently BUFFERS any prompt > ~100 chars (its PII
-        # de-anonymisation collects the full response before returning), so real RAG answers
-        # still arrive as a single chunk regardless of HTTP client — see docs/LIMITATIONS.md.
-        # This path is correct and ready: it streams token-by-token the moment the proxy is
-        # fixed, and already streams short prompts. stream_usage is intentionally not requested;
-        # cost is estimated below.
+        # Raw httpx SSE request (not the langchain/openai-SDK client) so we yield each token
+        # AS IT ARRIVES. Target is the configured response model (see __init__):
+        #   - OpenAI proxy (default): BUFFERS prompts >~100 chars — its PII de-anonymisation
+        #     collects the full response first, so real RAG answers arrive as one chunk
+        #     (see docs/LIMITATIONS.md). Correct, but not truly incremental.
+        #   - Qwen gateway (RESPONSE_USE_QWEN=true): streams token-by-token for real (verified).
+        # stream_usage is intentionally not requested; cost is estimated below.
         full_text_parts = []
-        url = settings.OPENAI_BASE_URL.rstrip("/") + "/chat/completions"
+        url = self.response_base_url.rstrip("/") + "/chat/completions"
         payload = {
-            "model": settings.OPENAI_MODEL,
+            "model": self.response_model,
             "stream": True,
             "temperature": 0.7,
             "messages": [{"role": "user", "content": full_prompt}],
         }
         headers = {
-            "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
+            "Authorization": f"Bearer {self.response_api_key}",
             "Content-Type": "application/json",
         }
         try:
@@ -197,7 +214,7 @@ class ResponseGenerator:
             token_tracker.track_estimated_usage(
                 input_text=full_prompt,
                 output_text=full_text,
-                model=settings.OPENAI_MODEL,
+                model=self.response_model,
                 session_id=session_id,
                 operation="response_generation",
             )
