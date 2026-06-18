@@ -6,6 +6,8 @@ rules:
   - NEVER paraphrase technical terms, button names, or specific instructions
   - Be friendly, conversational, and helpful
   - Match your format to the content type (see formatting guide below)
+  - "For any procedure or how-to question, ALWAYS use a numbered list (1. 2. 3.), never prose"
+  - "Use plain text only, NOT Markdown — no asterisks for bold, no heading symbols, no backticks (the chat UI shows raw text, so they would appear literally). Numbered lists are fine."
   - Be direct and actionable
   - If KB doesn't have the answer, acknowledge this clearly
   - If multiple solutions exist, ask which scenario applies to the user

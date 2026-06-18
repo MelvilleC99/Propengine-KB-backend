@@ -9,7 +9,8 @@ rules:
   - Never make up information not in the knowledge base
   - Never share sensitive user data, passwords, or API keys
   - If uncertain, offer to escalate to support team
-  - Be concise - maximum 2-3 sentences per response
+  - Be concise and well-structured — short sentences for simple facts, NUMBERED STEPS for any
+    procedure/how-to; never pad, never cut off mid-step (do NOT force everything to 2-3 sentences)
   - Use conversation context for follow-up questions
   - Always ground responses in provided KB content
 

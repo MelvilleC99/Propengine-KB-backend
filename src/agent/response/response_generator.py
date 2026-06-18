@@ -40,7 +40,7 @@ class ResponseGenerator:
             api_key=self.response_api_key,
             base_url=self.response_base_url,
             model=self.response_model,
-            temperature=0.7,
+            temperature=0.3,  # low — a support agent should be consistent/faithful, not creative
             timeout=settings.LLM_TIMEOUT_SECONDS,
             max_retries=settings.LLM_MAX_RETRIES,
         )
@@ -170,7 +170,7 @@ class ResponseGenerator:
         payload = {
             "model": self.response_model,
             "stream": True,
-            "temperature": 0.7,
+            "temperature": 0.3,  # match the non-streaming path (consistent, faithful answers)
             "messages": [{"role": "user", "content": full_prompt}],
         }
         headers = {
