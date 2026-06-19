@@ -45,7 +45,7 @@ gcloud run deploy $SERVICE_NAME \
   --memory 2Gi \
   --cpu 2 \
   --timeout 300 \
-  --min-instances 0 \
+  --min-instances 1 \
   --max-instances 10 \
   --set-env-vars="DEBUG=false,LOG_LEVEL=INFO,API_HOST=0.0.0.0,API_PORT=8080,REQUIRE_AUTH=true,FRESHDESK_GROUP_ID=203000094600,CUSTOMER_AGENT_PUBLIC=true,CORS_ALLOWED_ORIGINS=*,RATE_LIMIT_TIER=dev" \
   --set-env-vars="AZURE_OPENAI_EMBEDDING_MODEL=text-embedding-3-small,AZURE_OPENAI_CHAT_MODEL=gpt-4o-mini" \
