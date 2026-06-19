@@ -155,11 +155,22 @@ _customer_auth = [] if settings.CUSTOMER_AGENT_PUBLIC else _auth
 app.include_router(health_routes.router, tags=["health"])  # PUBLIC — monitoring
 app.include_router(test_agent_routes.router, tags=["test-agent"], dependencies=_auth)        # internal KB
 app.include_router(support_agent_routes.router, tags=["support-agent"], dependencies=_auth)  # internal KB
-app.include_router(customer_agent_routes.router, tags=["customer-agent"], dependencies=_customer_auth)
 app.include_router(admin_routes.router, prefix="/api/admin", tags=["admin"], dependencies=_auth)   # LOCKED
 app.include_router(kb_routes.router, tags=["kb"], dependencies=_auth)                              # LOCKED (destructive)
-app.include_router(feedback_routes.router, tags=["feedback"], dependencies=_customer_auth)
-app.include_router(agent_failure_routes.router, tags=["agent-failure"], dependencies=_customer_auth)
+
+# LEGACY customer endpoints (old chat / feedback / ticket) — superseded by /api/chatbot/*.
+# Registered ONLY while ENABLE_LEGACY_ENDPOINTS is true (the migration parallel-run). Set the
+# env to false once the frontend is fully on /api/chatbot/* to retire them, so only the new
+# endpoints serve the chatbot. The Freshdesk close-webhook (below) stays registered regardless.
+# NOTE: this also gates /api/feedback and /api/agent-failure — confirm no internal tool still
+# needs them before disabling.
+if settings.ENABLE_LEGACY_ENDPOINTS:
+    app.include_router(customer_agent_routes.router, tags=["customer-agent"], dependencies=_customer_auth)
+    app.include_router(feedback_routes.router, tags=["feedback"], dependencies=_customer_auth)
+    app.include_router(agent_failure_routes.router, tags=["agent-failure"], dependencies=_customer_auth)
+    logger.info("🔁 Legacy customer endpoints ENABLED (parallel run with /api/chatbot/*)")
+else:
+    logger.info("⛔ Legacy customer endpoints DISABLED — only /api/chatbot/* serves the chatbot")
 # PUBLIC (machine-to-machine): Freshdesk webhook — secured by X-Webhook-Secret, NOT the user gate
 app.include_router(agent_failure_routes.webhook_router, tags=["agent-failure-webhook"])
 app.include_router(session_endpoints.router, prefix="/api", tags=["sessions"], dependencies=_auth)

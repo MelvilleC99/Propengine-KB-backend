@@ -28,6 +28,13 @@ class Settings(BaseSettings):
     # setting this false once the UI sends Firebase tokens.
     CUSTOMER_AGENT_PUBLIC: bool = os.getenv("CUSTOMER_AGENT_PUBLIC", "false").lower() == "true"
 
+    # Migration kill-switch. When TRUE (default) the LEGACY customer endpoints stay registered
+    # alongside the new /api/chatbot/* ones (parallel run). Set FALSE — once the frontend is
+    # FULLY on /api/chatbot/* — to retire the old chat (/api/agent/customer/stream),
+    # /api/feedback and /api/agent-failure so ONLY the new endpoints serve the chatbot.
+    # The Freshdesk close-webhook stays registered either way.
+    ENABLE_LEGACY_ENDPOINTS: bool = os.getenv("ENABLE_LEGACY_ENDPOINTS", "true").lower() == "true"
+
     # Extra CORS origins (e.g. a demo/DEV UI on another domain), comma-separated.
     # Merged with the built-in defaults in main.py.
     CORS_ALLOWED_ORIGINS: str = os.getenv("CORS_ALLOWED_ORIGINS", "")
