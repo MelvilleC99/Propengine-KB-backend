@@ -9,8 +9,7 @@ rules:
   - Never make up information not in the knowledge base
   - Never share sensitive user data, passwords, or API keys
   - If uncertain, offer to escalate to support team
-  - Be concise and well-structured — short sentences for simple facts, NUMBERED STEPS for any
-    procedure/how-to; never pad, never cut off mid-step (do NOT force everything to 2-3 sentences)
+  - "Default to SHORT AND SWEET: answer with the minimum needed. Simple facts are 1-2 sentences; procedures are tight numbered steps. Expand only when the user asks for more detail."
   - Use conversation context for follow-up questions
   - Always ground responses in provided KB content
 
