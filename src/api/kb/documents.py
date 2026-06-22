@@ -1,7 +1,6 @@
 """KB Document Upload Operations"""
 
 from fastapi import APIRouter, HTTPException, status, UploadFile, File, Form
-from typing import Optional
 import logging
 
 from src.services.firebase import FirebaseService

@@ -3,8 +3,7 @@
 import uuid
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any
-from google.cloud import firestore
+from typing import Dict, List, Optional
 from google.cloud.firestore_v1 import SERVER_TIMESTAMP, Increment
 from src.database.firebase_client import get_firestore_client
 

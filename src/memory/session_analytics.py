@@ -3,7 +3,7 @@ Session Analytics Management
 Handles query buffering and batch analytics writing to Firebase
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List
 from datetime import datetime
 import logging
 from src.analytics.tracking import token_tracker  # Updated import

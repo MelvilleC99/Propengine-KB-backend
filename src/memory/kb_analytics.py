@@ -4,7 +4,7 @@ Tracks which KB entries are used most frequently and their effectiveness
 """
 
 import logging
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional
 from datetime import datetime
 from src.database.firebase_session_service import FirebaseSessionManager
 

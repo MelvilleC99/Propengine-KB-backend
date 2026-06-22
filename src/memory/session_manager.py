@@ -389,7 +389,7 @@ class SessionManager:
                 )
                 
                 if success:
-                    logger.info(f"✅ Session summary written")
+                    logger.info("✅ Session summary written")
             
             # 4. Write analytics batch
             await self.analytics.write_session_analytics(

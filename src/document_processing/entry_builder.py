@@ -1,8 +1,7 @@
 """Entry Builder - Builds KB entries from analyzed documents"""
 
 import logging
-from typing import Dict, Any, List, Optional
-from datetime import datetime
+from typing import Dict, Any, List
 
 from .structure_analyzer import AnalysisResult, AnalyzedSection
 from .extractors import ExtractionResult

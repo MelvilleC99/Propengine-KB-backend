@@ -3,7 +3,7 @@
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict
+from typing import Optional, Dict
 from datetime import datetime
 import logging
 from src.agent.orchestrator import Agent

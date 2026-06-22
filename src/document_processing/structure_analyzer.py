@@ -3,7 +3,7 @@
 import logging
 import json
 from typing import Dict, Any, List, Optional
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 
 from .extractors import ExtractedSection, ExtractionResult
 

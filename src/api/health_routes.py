@@ -4,7 +4,7 @@ System Health Check Routes
 Provides real-time status of all system components for monitoring dashboard.
 """
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter
 from typing import Dict, Any
 import time
 import asyncio
@@ -179,7 +179,7 @@ async def check_openai_embeddings() -> Dict[str, Any]:
         elif "timeout" in error_msg.lower():
             message = "Embeddings endpoint timeout"
         elif "500" in error_msg:
-            message = f"Embeddings API returned 500 (proxy or OpenAI issue)"
+            message = "Embeddings API returned 500 (proxy or OpenAI issue)"
         else:
             message = "Embeddings endpoint unavailable"
 

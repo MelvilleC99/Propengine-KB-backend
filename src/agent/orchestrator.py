@@ -7,18 +7,16 @@ OPTIMIZED: Single query intelligence call for follow-up detection + enhancement
 - Parent retrieval → search/parent_retrieval.py
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 import asyncio
-import logging
 import re
 import time
-from src.config.settings import settings
 from src.query.vector_search import VectorSearch
 from src.query.reranker import SearchReranker
 from src.memory.session_manager import SessionManager
 from src.memory.kb_analytics import KBAnalyticsTracker
 from src.agent.classification import QueryClassifier
-from src.agent.query_processing.query_intelligence import QueryIntelligence
+from src.agent.query_processing.query_intelligence import QueryIntelligence, QueryAnalysis
 from src.agent.context import ContextBuilder
 from src.agent.context.context_responder import ContextResponder
 from src.agent.search import SearchStrategy, ParentDocumentRetrieval

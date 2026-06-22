@@ -4,7 +4,7 @@ Reorders vector search results based on query-specific relevance
 """
 
 import logging
-from typing import List, Dict, Optional
+from typing import List, Dict
 import re
 
 logger = logging.getLogger(__name__)

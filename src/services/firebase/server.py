@@ -1,9 +1,9 @@
 """Firebase Service - Handles all Firebase Firestore operations"""
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 import logging
 from datetime import datetime
-from google.cloud.firestore_v1 import FieldFilter, Query
+from google.cloud.firestore_v1 import FieldFilter
 from src.database.firebase_client import get_firestore_client
 
 logger = logging.getLogger(__name__)

@@ -1,0 +1,49 @@
+# Azure DevOps CI — runs on every push to main + PRs.
+# Lints (ruff, bug rules) and runs the test suite on Python 3.11 (matches the prod Docker image).
+#
+# NOTE: free-tier Azure Pipelines needs a one-time parallelism grant from Microsoft before jobs
+# actually run (https://aka.ms/azpipelines-parallelism-request). If jobs queue forever, that's why,
+# and the GitHub Actions equivalent (.github/workflows/ci.yml) is the instant fallback.
+
+trigger:
+  branches:
+    include: [main]
+
+pr:
+  branches:
+    include: [main]
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  # Dummy values so settings/clients construct at import. Tests use mocks — nothing connects.
+  REQUIRE_AUTH: 'false'
+  CUSTOMER_AGENT_PUBLIC: 'true'
+  OPENAI_API_KEY: 'test-key'
+  OPENAI_BASE_URL: 'https://example.invalid/v1'
+  OPENAI_MODEL: 'gpt-4o-mini'
+  EMBEDDING_MODEL: 'text-embedding-3-small'
+  ASTRADB_APPLICATION_TOKEN: 'test-token'
+  ASTRADB_API_ENDPOINT: 'https://example.invalid'
+  ASTRADB_KEYSPACE: 'default_keyspace'
+  FIREBASE_PROJECT_ID: 'test-project'
+  REDIS_HOST: 'localhost'
+  REDIS_PORT: '6379'
+
+steps:
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: '3.11'
+    displayName: 'Use Python 3.11 (matches prod Docker)'
+
+  - script: |
+      python -m pip install --upgrade pip
+      pip install -r requirements.txt ruff
+    displayName: 'Install dependencies + ruff'
+
+  - script: ruff check src tests
+    displayName: 'Lint (ruff — bug rules F/B)'
+
+  - script: pytest tests/ -q
+    displayName: 'Tests (pytest)'

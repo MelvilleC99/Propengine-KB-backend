@@ -1,7 +1,7 @@
 """AstraDB database connection initialization and health checks"""
 
 import logging
-from typing import Dict, List, Optional
+from typing import Dict
 from langchain_astradb import AstraDBVectorStore
 from langchain_openai import OpenAIEmbeddings
 from src.config.settings import settings

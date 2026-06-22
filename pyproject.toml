@@ -1,0 +1,33 @@
+# Tooling config for the PropertyEngine KB backend.
+# Tools read this from the repo root; nothing here changes runtime behaviour.
+
+[tool.ruff]
+line-length = 120
+# Target the LOWEST Python we run on (local dev = 3.9; prod Docker = 3.11), so ruff never
+# suggests 3.10+ syntax that would break local.
+target-version = "py39"
+extend-exclude = ["test_scripts", "Archive", "claude_code", ".venv", "__pycache__"]
+
+# Phase 1: enforce BUG-catching rules only (F = pyflakes, B = bugbear). The cosmetic rules
+# (E/W whitespace, I import-order, UP modernization) are deferred to a one-time `ruff format`
+# + style pass later, so CI stays green and meaningful from day one without a giant diff.
+[tool.ruff.lint]
+select = ["F", "B"]
+# Deferred to the one-time style/cleanup pass (all minor, none are crashes):
+#   B008  function call in a default arg → idiomatic FastAPI (Depends())
+#   B904  raise-without-from inside except → best-practice only
+#   F841  unused local variable  | B007 unused loop var  (8 spots; one may be a forgotten feature)
+ignore = ["B008", "B904", "F841", "B007"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]   # re-exports are intentional
+"tests/**" = ["B", "E402"]
+
+[tool.mypy]
+python_version = "3.9"
+ignore_missing_imports = true   # most deps ship no type stubs
+check_untyped_defs = true
+warn_redundant_casts = true
+# Lenient to start (the codebase was never type-checked). Tighten later once it's green.
+disallow_untyped_defs = false
+exclude = ["test_scripts", "Archive", "claude_code", "\\.venv"]

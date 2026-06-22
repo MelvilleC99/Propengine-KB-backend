@@ -1,6 +1,6 @@
 """Vector Sync Service - Orchestrates syncing between Firebase and AstraDB"""
 
-from typing import Dict, Any, List
+from typing import Dict, Any
 import logging
 from src.services.firebase.server import FirebaseService
 from src.services.astradb.server import AstraDBService
@@ -190,7 +190,7 @@ class VectorSyncService:
             delete_result = await self.astradb.delete_vector(entry_id)
             
             if delete_result["success"]:
-                logger.info(f"🗑️ Deleted old vector")
+                logger.info("🗑️ Deleted old vector")
             
             # Sync new vector
             result = await self.sync_entry_to_vector(entry_id)

@@ -54,11 +54,11 @@ class ParentDocumentRetrieval:
         needs_full_context = self.query_needs_full_context(query)
         
         if not needs_full_context:
-            logger.info(f"📍 Query is specific, using only relevant chunks (no parent expansion)")
+            logger.info("📍 Query is specific, using only relevant chunks (no parent expansion)")
             return results
         
         # Query needs comprehensive context - proceed with parent retrieval
-        logger.info(f"📚 Query needs comprehensive context, expanding parent documents")
+        logger.info("📚 Query needs comprehensive context, expanding parent documents")
         
         # Group results by parent_entry_id
         parents = {}

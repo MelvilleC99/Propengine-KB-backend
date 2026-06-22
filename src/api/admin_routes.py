@@ -1,7 +1,7 @@
 """Admin API routes for monitoring and management"""
 
 from fastapi import APIRouter, HTTPException
-from typing import Optional, List, Dict
+from typing import Optional
 from datetime import datetime
 import logging
 from src.memory.session_manager import SessionManager

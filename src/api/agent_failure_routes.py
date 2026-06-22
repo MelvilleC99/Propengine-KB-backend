@@ -1,10 +1,9 @@
 """Agent Failure Routes - Track failures and create tickets"""
 
 from fastapi import APIRouter, HTTPException, Request, Header, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from typing import Optional, List, Dict
 import logging
-from datetime import datetime
 from src.config.settings import settings
 from src.database.firebase_agent_failure_service import FirebaseAgentFailureService
 from src.services.freshdesk_service import get_freshdesk_service

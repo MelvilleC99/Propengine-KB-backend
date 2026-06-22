@@ -1,7 +1,6 @@
 """Dashboard metrics API - Provides analytics for dashboard"""
 
 from fastapi import APIRouter, HTTPException
-from typing import Dict, Optional
 from datetime import datetime, timedelta
 from src.database.firebase_client import FirebaseConnection
 import logging

@@ -94,5 +94,5 @@ class QueryClassifier:
                     return query_type, 0.8
         
         # Default to general for unknown queries (no entryType filter applied)
-        logger.debug(f"Query defaulted to 'general' (no pattern match)")
+        logger.debug("Query defaulted to 'general' (no pattern match)")
         return "general", 0.5

@@ -130,7 +130,7 @@ class FreshdeskService:
             if custom_fields:
                 ticket_data["custom_fields"] = custom_fields
 
-            logger.info(f"🎫 Creating Freshdesk ticket:")
+            logger.info("🎫 Creating Freshdesk ticket:")
             logger.info(f"   Subject: {subject[:50]}...")
             logger.info(f"   Requester: {name} <{_mask_email(email)}>")
             logger.info(f"   Priority: {priority}")
@@ -216,7 +216,7 @@ class FreshdeskService:
             "cf_solutionadd_steps": "AI escalation - requires investigation"
         }
         
-        logger.info(f"📋 Escalation ticket data:")
+        logger.info("📋 Escalation ticket data:")
         logger.info(f"   Query length: {len(query)} chars")
         logger.info(f"   User Email: {_mask_email(user_email)}")
         logger.info(f"   User Name: {user_name}")

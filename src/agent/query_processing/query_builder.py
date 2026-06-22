@@ -122,7 +122,7 @@ class QueryBuilder:
             last_brace = response_text.rfind('}')
             
             if first_brace == -1 or last_brace == -1:
-                raise ValueError(f"No valid JSON object found in response")
+                raise ValueError("No valid JSON object found in response")
             
             response_text = response_text[first_brace:last_brace+1]
             

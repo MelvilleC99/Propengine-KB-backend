@@ -6,7 +6,7 @@ Loads and manages prompts from YAML files.
 import yaml
 import logging
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict
 
 logger = logging.getLogger(__name__)
 

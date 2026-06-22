@@ -4,11 +4,9 @@ Handles immediate message storage and retrieval for conversational context
 """
 
 import json
-import redis
 import logging
 from typing import Dict, List, Optional
-from datetime import datetime, timedelta
-from src.config.settings import settings
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 

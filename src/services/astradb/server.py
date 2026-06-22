@@ -1,6 +1,6 @@
 """AstraDB Service - Handles all vector database operations"""
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 import logging
 from src.database.astra_client import AstraDBConnection
 
@@ -286,7 +286,6 @@ class AstraDBService:
             # Use LangChain's proper method to get documents with IDs
             # We need to search to get documents, but we want ALL documents
             # So we use a generic search with high k value
-            from langchain_core.documents import Document
             
             # Get documents with scores (this returns tuples)
             results_with_ids = []

@@ -2,7 +2,7 @@
 
 import logging
 import time
-from typing import List, Dict, Optional, Any, Tuple
+from typing import List, Dict, Optional
 from langchain_astradb import AstraDBVectorStore
 from langchain.schema import Document
 from src.config.settings import settings

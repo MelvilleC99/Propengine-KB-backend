@@ -1,7 +1,6 @@
 """Firebase User Management Service"""
 
 import logging
-from datetime import datetime
 from typing import Dict, Optional
 from google.cloud.firestore_v1 import SERVER_TIMESTAMP, Increment
 from src.database.firebase_client import get_firestore_client

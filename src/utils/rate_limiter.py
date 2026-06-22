@@ -4,7 +4,6 @@ import time
 import logging
 from typing import Dict, Optional
 from fastapi import HTTPException, Request
-from datetime import datetime, timedelta
 from src.config.rate_limits import get_rate_limits, get_limit_for_endpoint
 
 logger = logging.getLogger(__name__)

@@ -36,7 +36,7 @@ class DocxExtractor:
     
     def __init__(self):
         try:
-            from docx import Document
+            from docx import Document  # noqa: F401  (availability probe)
             self._docx_available = True
         except ImportError:
             logger.warning("python-docx not installed. DOCX extraction will be limited.")
@@ -72,7 +72,6 @@ class DocxExtractor:
     async def _extract_with_structure(self, file_bytes: bytes, filename: str) -> ExtractionResult:
         """Extract with full structure preservation using python-docx"""
         from docx import Document
-        from docx.document import Document as DocType
         from docx.oxml.table import CT_Tbl
         from docx.oxml.text.paragraph import CT_P
         from docx.table import Table
@@ -286,7 +285,7 @@ class PdfExtractor:
     
     def __init__(self):
         try:
-            import fitz  # PyMuPDF
+            import fitz  # noqa: F401  (PyMuPDF availability probe)
             self._fitz_available = True
         except ImportError:
             logger.warning("PyMuPDF not installed. PDF extraction will be limited.")
