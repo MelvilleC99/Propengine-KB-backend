@@ -209,7 +209,8 @@ class FreshdeskService:
             "cf_agency_group": "Internal",  # REQUIRED dropdown; must match a configured value
             "cf_agency_office": "PropTech",  # REQUIRED dropdown; one of PropTech / BetterBond
             "cf_category": "Listing",  # Default
-            "cf_sub_category": "Other",  # Default
+            "cf_sub_category": "No error determined",  # MUST be a configured cf_sub_category dropdown
+            #                                            value (they drift — "Other" was removed by admin)
             "cf_case_ownership": "Support",
             "cf_resolution_process": "Customer Advised",
             "cf_root_cause": "Customer Inquiry",
