@@ -89,7 +89,20 @@ class Settings(BaseSettings):
     FRESHDESK_GROUP_ID: Optional[int] = int(os.getenv("FRESHDESK_GROUP_ID", "0")) or None
     # Shared secret Freshdesk sends as the X-Webhook-Secret header on the ticket-closed webhook.
     FRESHDESK_WEBHOOK_SECRET: Optional[str] = os.getenv("FRESHDESK_WEBHOOK_SECRET")
-    
+
+    # Freshdesk custom-field values for escalation tickets. These MUST match the configured
+    # dropdown options in the Freshdesk account — support admins edit those dropdowns, so a value
+    # can become invalid without any code change (then tickets 400 with "invalid_value"). Keeping
+    # them here means fixing a drift is an ENV/config update, not a code deploy.
+    FRESHDESK_CF_AGENCY_GROUP: str = os.getenv("FRESHDESK_CF_AGENCY_GROUP", "Internal")
+    FRESHDESK_CF_AGENCY_OFFICE: str = os.getenv("FRESHDESK_CF_AGENCY_OFFICE", "PropTech")
+    FRESHDESK_CF_CATEGORY: str = os.getenv("FRESHDESK_CF_CATEGORY", "Listing")
+    FRESHDESK_CF_SUB_CATEGORY: str = os.getenv("FRESHDESK_CF_SUB_CATEGORY", "No error determined")
+    FRESHDESK_CF_CASE_OWNERSHIP: str = os.getenv("FRESHDESK_CF_CASE_OWNERSHIP", "Support")
+    FRESHDESK_CF_RESOLUTION_PROCESS: str = os.getenv("FRESHDESK_CF_RESOLUTION_PROCESS", "Customer Advised")
+    FRESHDESK_CF_ROOT_CAUSE: str = os.getenv("FRESHDESK_CF_ROOT_CAUSE", "Customer Inquiry")
+    FRESHDESK_CF_SOLUTION_STEPS: str = os.getenv("FRESHDESK_CF_SOLUTION_STEPS", "AI escalation - requires investigation")
+
     # Query Settings
     MAX_SEARCH_RESULTS: int = 6  # Increased from 3 for better context
     MIN_CONFIDENCE_SCORE: float = 0.50  # Retrieval threshold - low to get candidates, reranker handles precision

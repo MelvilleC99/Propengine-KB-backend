@@ -205,16 +205,18 @@ class FreshdeskService:
         # with a 400 ("Unexpected/invalid field"). cf_agency and cf_office are NOT defined
         # in this account, so they are intentionally omitted (their values still appear in
         # the ticket description). If you add them in Freshdesk admin, re-add them here.
+        # Values come from settings (env-overridable). They MUST match the Freshdesk dropdowns;
+        # when an admin edits a dropdown and tickets 400 with "invalid_value", update the matching
+        # FRESHDESK_CF_* env var — no code change needed. See src/config/settings.py.
         custom_fields = {
-            "cf_agency_group": "Internal",  # REQUIRED dropdown; must match a configured value
-            "cf_agency_office": "PropTech",  # REQUIRED dropdown; one of PropTech / BetterBond
-            "cf_category": "Listing",  # Default
-            "cf_sub_category": "No error determined",  # MUST be a configured cf_sub_category dropdown
-            #                                            value (they drift — "Other" was removed by admin)
-            "cf_case_ownership": "Support",
-            "cf_resolution_process": "Customer Advised",
-            "cf_root_cause": "Customer Inquiry",
-            "cf_solutionadd_steps": "AI escalation - requires investigation"
+            "cf_agency_group": settings.FRESHDESK_CF_AGENCY_GROUP,
+            "cf_agency_office": settings.FRESHDESK_CF_AGENCY_OFFICE,
+            "cf_category": settings.FRESHDESK_CF_CATEGORY,
+            "cf_sub_category": settings.FRESHDESK_CF_SUB_CATEGORY,
+            "cf_case_ownership": settings.FRESHDESK_CF_CASE_OWNERSHIP,
+            "cf_resolution_process": settings.FRESHDESK_CF_RESOLUTION_PROCESS,
+            "cf_root_cause": settings.FRESHDESK_CF_ROOT_CAUSE,
+            "cf_solutionadd_steps": settings.FRESHDESK_CF_SOLUTION_STEPS,
         }
         
         logger.info("📋 Escalation ticket data:")
