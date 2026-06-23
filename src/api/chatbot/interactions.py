@@ -208,8 +208,8 @@ async def create_escalation(
         user_email=user_email,
         user_name=session.get("user_name"),
         user_phone=None,
-        user_agency=session.get("agency"),
-        user_office=session.get("office"),
+        user_agency=session.get("account_label"),
+        user_office=session.get("office_label"),
         conversation_history=conversation_history,
         escalation_reason=interaction.get("escalation_reason", "user_requested"),
     )

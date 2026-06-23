@@ -67,20 +67,14 @@ class FirebaseInteractionService:
         session_data = {
             "id": session_id,
             "created_by": created_by,
-            # business-context snapshot (NOT identity — identity is created_by)
+            # business-context snapshot (NOT identity — identity is created_by).
+            # Mirrors exactly what the frontend sends: email + PE account/office.
             "user_email": user_info.get("email"),
             "user_name": user_info.get("name"),
-            # PropertyEngine account/office context (sent by the frontend)
             "account_id": user_info.get("account_id"),
             "account_label": user_info.get("account_label"),
             "office_id": user_info.get("office_id"),
             "office_label": user_info.get("office_label"),
-            # legacy context — no longer sent by the frontend; kept (null) pending schema cleanup
-            "company": user_info.get("company"),
-            "division": user_info.get("division"),
-            "agency": user_info.get("agency"),
-            "office": user_info.get("office"),
-            "user_type": user_info.get("user_type"),
             "created_at": SERVER_TIMESTAMP,
             "last_activity": SERVER_TIMESTAMP,
             "interaction_count": 0,

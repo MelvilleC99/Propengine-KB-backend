@@ -20,10 +20,10 @@ and the ticket are **updates to that same document**, not separate collections.
 {
   "id": "a1b2-…",              // doc id; the backend creates this (frontend echoes it back)
   "created_by": "<user-id>",   // from the auth token (NOT the request body)
-  "user_email": "jane@x.co",   // business-context snapshot (from user_info)
+  "user_email": "jane@x.co",   // business-context snapshot (mirrors the request payload)
   "user_name": "Jane",
-  "company": null, "division": null, "agency": "Acme", "office": "Sandton",
-  "user_type": "external",
+  "account_id": 1092, "account_label": "Demo Office Account",   // PropertyEngine account
+  "office_id": 8496,  "office_label": "First Office",           // PropertyEngine office
   "summary": null,             // short label for the history UI (populated later)
   "interaction_count": 3,
   "status": "active",
