@@ -143,50 +143,54 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     logger.error(f"Unhandled error on {request.method} {request.url.path}", exc_info=True)
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
-# Include routers
-# Auth gate: every protected router gets `_auth`; PUBLIC ones (health, root) do not.
-# Enforcement is controlled by settings.REQUIRE_AUTH (see src/api/auth.py).
+# ============================================================================
+# ROUTERS — grouped by purpose. Full map: docs/ENDPOINTS.md
+# Auth: protected routers take `_auth` (Firebase token, enforced when REQUIRE_AUTH=true).
+# The customer chatbot uses `_customer_auth` (open while CUSTOMER_AGENT_PUBLIC=true, else gated).
+# ============================================================================
 _auth = [Depends(verify_user)]
-# Customer-facing flow (chat + feedback + escalation — all NON-destructive). Opened without auth
-# for the DEV/demo when CUSTOMER_AGENT_PUBLIC=true; otherwise gated like everything else.
-# KB management + admin are NEVER opened by this flag.
 _customer_auth = [] if settings.CUSTOMER_AGENT_PUBLIC else _auth
 
-app.include_router(health_routes.router, tags=["health"])  # PUBLIC — monitoring
-app.include_router(test_agent_routes.router, tags=["test-agent"], dependencies=_auth)        # internal KB
-app.include_router(support_agent_routes.router, tags=["support-agent"], dependencies=_auth)  # internal KB
-app.include_router(admin_routes.router, prefix="/api/admin", tags=["admin"], dependencies=_auth)   # LOCKED
-app.include_router(kb_routes.router, tags=["kb"], dependencies=_auth)                              # LOCKED (destructive)
+# --- Public (no auth) -------------------------------------------------------
+app.include_router(health_routes.router, tags=["health"])
 
-# LEGACY customer endpoints (old chat / feedback / ticket) — superseded by /api/chatbot/*.
-# Registered ONLY while ENABLE_LEGACY_ENDPOINTS is true (the migration parallel-run). Set the
-# env to false once the frontend is fully on /api/chatbot/* to retire them, so only the new
-# endpoints serve the chatbot. The Freshdesk close-webhook (below) stays registered regardless.
-# NOTE: this also gates /api/feedback and /api/agent-failure — confirm no internal tool still
-# needs them before disabling.
-if settings.ENABLE_LEGACY_ENDPOINTS:
-    app.include_router(customer_agent_routes.router, tags=["customer-agent"], dependencies=_customer_auth)
-    app.include_router(feedback_routes.router, tags=["feedback"], dependencies=_customer_auth)
-    app.include_router(agent_failure_routes.router, tags=["agent-failure"], dependencies=_customer_auth)
-    logger.info("🔁 Legacy customer endpoints ENABLED (parallel run with /api/chatbot/*)")
-else:
-    logger.info("⛔ Legacy customer endpoints DISABLED — only /api/chatbot/* serves the chatbot")
-# PUBLIC (machine-to-machine): Freshdesk webhook — secured by X-Webhook-Secret, NOT the user gate
-app.include_router(agent_failure_routes.webhook_router, tags=["agent-failure-webhook"])
-app.include_router(session_endpoints.router, prefix="/api", tags=["sessions"], dependencies=_auth)
-app.include_router(user_routes.router, tags=["users"], dependencies=_auth)  # User management
-
-# New interaction-centric chatbot API (/api/chatbot/*) — runs in PARALLEL with the legacy
-# customer routes during migration. Gated like the customer flow (_customer_auth: open while
-# CUSTOMER_AGENT_PUBLIC=true). Wrapped in try/except so a failure in this new, optional layer
-# can NEVER stop the app from booting — worst case it just doesn't register and the existing
-# routers keep serving. Remove this block (or `git checkout main.py`) to fully revert.
+# --- Customer chatbot — NEW interaction-centric API (/api/chatbot/*) ---------
+# THE current chatbot surface: one durable interaction record per turn.
+# Wrapped so a failure here can never stop the app booting (worst case it just
+# doesn't register and the rest keeps serving).
 try:
     from src.api import chatbot
     app.include_router(chatbot.router, dependencies=_customer_auth)
     logger.info("✅ Chatbot API registered (/api/chatbot/*)")
 except Exception as e:
     logger.error(f"⚠️ Chatbot API NOT registered (app still running): {e}", exc_info=True)
+
+# --- Customer chatbot — LEGACY endpoints (DEPRECATED, being retired) ---------
+# Old chat (/api/agent/customer/stream), /api/feedback, /api/agent-failure — superseded by
+# /api/chatbot/*. Registered ONLY while ENABLE_LEGACY_ENDPOINTS=true (the migration parallel-run).
+# Before disabling: feedback_routes/agent_failure_routes ALSO hold the admin GET /stats endpoints,
+# so retire these together with the admin-dashboard re-point (see docs/ENDPOINTS.md).
+if settings.ENABLE_LEGACY_ENDPOINTS:
+    app.include_router(customer_agent_routes.router, tags=["customer-agent (LEGACY)"], dependencies=_customer_auth)
+    app.include_router(feedback_routes.router, tags=["feedback (LEGACY)"], dependencies=_customer_auth)
+    app.include_router(agent_failure_routes.router, tags=["agent-failure (LEGACY)"], dependencies=_customer_auth)
+    logger.info("🔁 Legacy customer endpoints ENABLED (parallel run with /api/chatbot/*)")
+else:
+    logger.info("⛔ Legacy customer endpoints DISABLED — only /api/chatbot/* serves the chatbot")
+
+# --- Webhooks (machine-to-machine; secured by X-Webhook-Secret, NOT user auth) ---
+# Freshdesk ticket-closed webhook. Stays registered regardless of the legacy flag.
+app.include_router(agent_failure_routes.webhook_router, tags=["webhooks"])
+
+# --- Internal KB agents (staff consoles — support + test) -------------------
+app.include_router(support_agent_routes.router, tags=["support-agent"], dependencies=_auth)
+app.include_router(test_agent_routes.router, tags=["test-agent"], dependencies=_auth)
+
+# --- Admin / KB management (LOCKED — always require auth) --------------------
+app.include_router(kb_routes.router, tags=["kb"], dependencies=_auth)
+app.include_router(admin_routes.router, prefix="/api/admin", tags=["admin"], dependencies=_auth)
+app.include_router(session_endpoints.router, prefix="/api", tags=["sessions"], dependencies=_auth)
+app.include_router(user_routes.router, tags=["users"], dependencies=_auth)
 
 @app.get("/")
 async def root():
