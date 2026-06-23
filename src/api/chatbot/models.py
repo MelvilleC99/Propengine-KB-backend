@@ -16,11 +16,15 @@ class InteractionRequest(BaseModel):
     message: str = Field(..., description="The user's question")
     session_id: Optional[str] = Field(
         None, description="Existing conversation to continue; omit to start a new one")
+    # PropertyEngine account/office context (sent by the frontend; snapshotted onto the session).
+    account_id: Optional[int] = Field(None, description="PE account id")
+    account_label: Optional[str] = Field(None, description="PE account name")
+    office_id: Optional[int] = Field(None, description="PE office id")
+    office_label: Optional[str] = Field(None, description="PE office name")
     user_info: Optional[Dict] = Field(
         default_factory=dict,
-        description=("Business-context snapshot (agency/office/user_type, etc.). "
-                     "Identity is taken from the auth token when present; user_info is "
-                     "the migration fallback and the context stored on the session."))
+        description=("Additional context (e.g. email). Identity is taken from the auth token "
+                     "when present; user_info is the migration fallback."))
 
 
 class FeedbackRequest(BaseModel):

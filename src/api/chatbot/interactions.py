@@ -109,8 +109,16 @@ async def create_interaction(
 
     svc = get_service()
     created_by = _resolve_identity(user, request.user_info)
-    session_id = svc.create_or_get_session(created_by, request.user_info, request.session_id)
-    interaction_id = svc.create_interaction(session_id, created_by, request.message, request.user_info)
+    # Snapshot the PE account/office context (sent per turn) onto the session, alongside user_info.
+    context = {
+        **(request.user_info or {}),
+        "account_id": request.account_id,
+        "account_label": request.account_label,
+        "office_id": request.office_id,
+        "office_label": request.office_label,
+    }
+    session_id = svc.create_or_get_session(created_by, context, request.session_id)
+    interaction_id = svc.create_interaction(session_id, created_by, request.message, context)
 
     return StreamingResponse(
         ndjson_stream(_interaction_stream(svc, interaction_id, session_id, request)),

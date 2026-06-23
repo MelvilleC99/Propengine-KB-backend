@@ -70,6 +70,12 @@ class FirebaseInteractionService:
             # business-context snapshot (NOT identity — identity is created_by)
             "user_email": user_info.get("email"),
             "user_name": user_info.get("name"),
+            # PropertyEngine account/office context (sent by the frontend)
+            "account_id": user_info.get("account_id"),
+            "account_label": user_info.get("account_label"),
+            "office_id": user_info.get("office_id"),
+            "office_label": user_info.get("office_label"),
+            # legacy context — no longer sent by the frontend; kept (null) pending schema cleanup
             "company": user_info.get("company"),
             "division": user_info.get("division"),
             "agency": user_info.get("agency"),
